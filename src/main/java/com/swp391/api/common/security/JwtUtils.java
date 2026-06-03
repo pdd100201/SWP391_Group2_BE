@@ -1,4 +1,4 @@
-package com.swp391.api.modules.user.security;
+package com.swp391.api.common.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;

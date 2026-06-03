@@ -1,4 +1,4 @@
-package com.swp391.api.modules.user.security;
+package com.swp391.api.common.security;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

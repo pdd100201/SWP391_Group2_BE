@@ -1,6 +1,6 @@
 package com.swp391.api.config;
 
-import com.swp391.api.modules.user.security.JwtAuthenticationFilter;
+import com.swp391.api.common.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;

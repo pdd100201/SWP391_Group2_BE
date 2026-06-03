@@ -1,14 +1,23 @@
 package com.swp391.api.modules.user.service.impl;
 
+import java.security.SecureRandom;
+import java.util.Base64;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload;
+import com.google.api.client.json.gson.GsonFactory;
+import com.google.api.client.http.javanet.NetHttpTransport;
 import com.swp391.api.modules.user.dto.AuthResponse;
 import com.swp391.api.modules.user.dto.CustomerRegisterRequest;
+import com.swp391.api.modules.user.dto.GoogleLoginRequest;
 import com.swp391.api.modules.user.dto.LoginRequest;
 import com.swp391.api.modules.user.entity.Customer;
 import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.repository.CustomerRepository;
 import com.swp391.api.modules.user.repository.UserRepository;
-import com.swp391.api.modules.user.security.JwtUtils;
+import com.swp391.api.common.security.JwtUtils;
 import com.swp391.api.modules.user.service.AuthService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -19,19 +28,26 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional
 public class AuthServiceImpl implements AuthService {
 
+    private static final String GOOGLE_CLIENT_ID = "150115632028-8eqn9u4mse09dm8vj2dcquev3gp6vruq.apps.googleusercontent.com";
+
     private final CustomerRepository customerRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtils jwtUtils;
+    private final GoogleIdTokenVerifier googleIdTokenVerifier;
 
     public AuthServiceImpl(CustomerRepository customerRepository,
                            UserRepository userRepository,
                            PasswordEncoder passwordEncoder,
-                           JwtUtils jwtUtils) {
+                           JwtUtils jwtUtils,
+                           @Value("${jwt.secret}") String ignoredJwtSecret) {
         this.customerRepository = customerRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtils = jwtUtils;
+        this.googleIdTokenVerifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), GsonFactory.getDefaultInstance())
+                .setAudience(java.util.List.of(GOOGLE_CLIENT_ID))
+                .build();
     }
 
     @Override
@@ -59,7 +75,7 @@ public class AuthServiceImpl implements AuthService {
         Customer customer = customerRepository.findByCustomersEmail(request.getEmail()).orElse(null);
         if (customer != null) {
             if (!passwordEncoder.matches(request.getPassword(), customer.getPassword())) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect password");
             }
             String token = jwtUtils.generateToken(customer.getCustomersEmail(), "CUSTOMER");
             return new AuthResponse(token, "CUSTOMER", customer.getFullName(), customer.getCustomersEmail());
@@ -68,13 +84,58 @@ public class AuthServiceImpl implements AuthService {
         User user = userRepository.findByUserEmail(request.getEmail()).orElse(null);
         if (user != null) {
             if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect password");
             }
             String role = user.getRole();
             String token = jwtUtils.generateToken(user.getUserEmail(), role);
             return new AuthResponse(token, role, user.getFullName(), user.getUserEmail());
         }
 
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect email");
+    }
+
+    @Override
+    public AuthResponse loginWithGoogle(GoogleLoginRequest request) {
+        try {
+            GoogleIdToken idToken = googleIdTokenVerifier.verify(request.getCredentialToken());
+            if (idToken == null) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Google credential token");
+            }
+
+            Payload payload = idToken.getPayload();
+            String googleEmail = payload.getEmail();
+            String googleName = (String) payload.get("name");
+            String googleAvatar = (String) payload.get("picture");
+
+            User user = userRepository.findByUserEmail(googleEmail).orElse(null);
+            if (user != null) {
+                String token = jwtUtils.generateToken(user.getUserEmail(), user.getRole());
+                return new AuthResponse(token, user.getRole(), user.getFullName(), user.getUserEmail());
+            }
+
+            Customer customer = customerRepository.findByCustomersEmail(googleEmail).orElse(null);
+            if (customer == null) {
+                Customer newCustomer = new Customer();
+                newCustomer.setCustomersEmail(googleEmail);
+                newCustomer.setFullName(googleName);
+                newCustomer.setAvatarUrl(googleAvatar);
+                newCustomer.setPhone(null);
+                newCustomer.setPassword(passwordEncoder.encode(generateRandomPassword()));
+                customer = customerRepository.save(newCustomer);
+            }
+
+            String token = jwtUtils.generateToken(customer.getCustomersEmail(), "CUSTOMER");
+            return new AuthResponse(token, "CUSTOMER", customer.getFullName(), customer.getCustomersEmail());
+        } catch (ResponseStatusException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Google login failed");
+        }
+    }
+
+    private String generateRandomPassword() {
+        byte[] bytes = new byte[24];
+        new SecureRandom().nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 }
