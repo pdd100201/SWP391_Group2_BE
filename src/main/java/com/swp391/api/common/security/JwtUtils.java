@@ -147,4 +147,35 @@ public class JwtUtils {
                 .parseSignedClaims(token)       // Parse và xác thực token
                 .getPayload();                  // Lấy phần payload (Claims)
     }
+
+    // 1. Hàm kiểm tra token có hợp lệ không (chưa hết hạn, đúng chữ ký)
+    public boolean validateJwtToken(String authToken) {
+        try {
+            Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(authToken);
+            return true;
+        } catch (Exception e) {
+            System.err.println("Token không hợp lệ hoặc đã hết hạn: " + e.getMessage());
+        }
+        return false;
+    }
+
+    // 2. Hàm lôi Email ra từ Token
+    public String getEmailFromToken(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getSubject();
+    }
+
+    // 3. Hàm lôi Role ra từ Token
+    public String getRoleFromToken(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get("role", String.class);
+    }
 }
