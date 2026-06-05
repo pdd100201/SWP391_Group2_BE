@@ -2,7 +2,6 @@ package com.swp391.api.config;
 
 import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.repository.UserRepository;
-import java.util.List;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -20,13 +19,13 @@ public class DefaultUsersSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        seedUser("System Admin", "admin@goldenspoon.vn", "admin123", "0900000000", "ADMIN");
-        seedUser("Restaurant Manager", "manager@goldenspoon.vn", "manager123", "0900000001", "MANAGER");
-        seedUser("Front Desk", "reception@goldenspoon.vn", "reception123", "0900000002", "RECEPTIONIST");
-        seedUser("Service Staff", "waiter@goldenspoon.vn", "waiter123", "0900000003", "WAITER");
+        seedUser("System Admin", "admin@goldenspoon.vn", "admin123", "0900000000", User.Role.ADMIN);
+        seedUser("Restaurant Manager", "manager@goldenspoon.vn", "manager123", "0900000001", User.Role.MANAGER);
+        seedUser("Front Desk", "reception@goldenspoon.vn", "reception123", "0900000002", User.Role.RECEPTIONIST);
+        seedUser("Service Staff", "waiter@goldenspoon.vn", "waiter123", "0900000003", User.Role.WAITER);
     }
 
-    private void seedUser(String fullName, String email, String rawPassword, String phone, String role) {
+    private void seedUser(String fullName, String email, String rawPassword, String phone, User.Role role) {
         if (userRepository.findByUserEmail(email).isPresent()) {
             return;
         }
@@ -37,8 +36,7 @@ public class DefaultUsersSeeder implements CommandLineRunner {
         user.setPassword(passwordEncoder.encode(rawPassword));
         user.setPhone(phone);
         user.setRole(role);
-        user.setStatus("ACTIVE");
-        user.setIsActive(true);
+        user.setStatus(User.Status.ACTIVE);
 
         userRepository.save(user);
     }
