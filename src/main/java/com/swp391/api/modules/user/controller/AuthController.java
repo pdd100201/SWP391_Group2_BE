@@ -2,8 +2,10 @@ package com.swp391.api.modules.user.controller;
 
 import com.swp391.api.modules.user.dto.AuthResponse;
 import com.swp391.api.modules.user.dto.CustomerRegisterRequest;
+import com.swp391.api.modules.user.dto.ForgotPasswordRequest;
 import com.swp391.api.modules.user.dto.GoogleLoginRequest;
 import com.swp391.api.modules.user.dto.LoginRequest;
+import com.swp391.api.modules.user.dto.ResetPasswordRequest;
 import com.swp391.api.modules.user.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -36,5 +38,20 @@ public class AuthController {
     @PostMapping("/google")
     public ResponseEntity<AuthResponse> loginWithGoogle(@RequestBody GoogleLoginRequest request) {
         return ResponseEntity.ok(authService.loginWithGoogle(request));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<String> logout() {
+        return ResponseEntity.ok("Logout successful");
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<String> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        return ResponseEntity.ok(authService.forgotPassword(request));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<String> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        return ResponseEntity.ok(authService.resetPassword(request));
     }
 }

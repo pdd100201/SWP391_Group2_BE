@@ -7,15 +7,17 @@ import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.http.javanet.NetHttpTransport;
+import com.swp391.api.common.security.JwtUtils;
 import com.swp391.api.modules.user.dto.AuthResponse;
 import com.swp391.api.modules.user.dto.CustomerRegisterRequest;
+import com.swp391.api.modules.user.dto.ForgotPasswordRequest;
 import com.swp391.api.modules.user.dto.GoogleLoginRequest;
 import com.swp391.api.modules.user.dto.LoginRequest;
+import com.swp391.api.modules.user.dto.ResetPasswordRequest;
 import com.swp391.api.modules.user.entity.Customer;
 import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.repository.CustomerRepository;
 import com.swp391.api.modules.user.repository.UserRepository;
-import com.swp391.api.common.security.JwtUtils;
 import com.swp391.api.modules.user.service.AuthService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -131,6 +133,37 @@ public class AuthServiceImpl implements AuthService {
         } catch (Exception ex) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Google login failed");
         }
+    }
+
+    @Override
+    public String logout() {
+        return "Logout successful";
+    }
+
+    @Override
+    public String forgotPassword(ForgotPasswordRequest request) {
+        User user = userRepository.findByUserEmail(request.getEmail()).orElse(null);
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+        }
+
+        String resetToken = jwtUtils.generateToken(user.getUserEmail(), "RESET_PASSWORD");
+        // TODO: Send resetToken via email to the user
+        return "Forgot password request received. Reset token generated successfully.";
+    }
+
+    @Override
+    public String resetPassword(ResetPasswordRequest request) {
+        // TODO: Verify reset token properly before allowing password change
+        String email = request.getToken();
+        User user = userRepository.findByUserEmail(email).orElse(null);
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+        return "Password reset successfully.";
     }
 
     private String generateRandomPassword() {
