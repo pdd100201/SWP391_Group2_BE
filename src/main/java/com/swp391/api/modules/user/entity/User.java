@@ -2,14 +2,25 @@ package com.swp391.api.modules.user.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "users")
-public class User {
+public class User extends BaseAuditableEntity {
+
+    public enum Role {
+        ADMIN, MANAGER, WAITER, RECEPTIONIST, CHEF, CASHIER, CUSTOMER
+    }
+
+    public enum Status {
+        ACTIVE, DEACTIVE
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -28,14 +39,28 @@ public class User {
     @Column(name = "phone")
     private String phone;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "role", nullable = false)
-    private String role;
+    private Role role;
 
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
+    @Enumerated(EnumType.STRING)
     @Column(name = "status")
-    private String status;
+    private Status status;
 
-    @Column(name = "is_active")
-    private Boolean isActive;
+    @PrePersist
+    public void onCreate() {
+        if (status == null) {
+            status = Status.ACTIVE;
+        }
+        if (avatarUrl == null || avatarUrl.isBlank()) {
+            avatarUrl = "";
+        }
+    }
+
+    // Getters and Setters
 
     public Long getUserId() {
         return userId;
@@ -77,27 +102,27 @@ public class User {
         this.phone = phone;
     }
 
-    public String getRole() {
+    public Role getRole() {
         return role;
     }
 
-    public void setRole(String role) {
+    public void setRole(Role role) {
         this.role = role;
     }
 
-    public String getStatus() {
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
+    }
+
+    public Status getStatus() {
         return status;
     }
 
-    public void setStatus(String status) {
+    public void setStatus(Status status) {
         this.status = status;
-    }
-
-    public Boolean getIsActive() {
-        return isActive;
-    }
-
-    public void setIsActive(Boolean isActive) {
-        this.isActive = isActive;
     }
 }

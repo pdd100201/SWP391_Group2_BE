@@ -52,46 +52,53 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse registerCustomer(CustomerRegisterRequest request) {
+        // Check duplicate in both tables
         customerRepository.findByCustomersEmail(request.getCustomersEmail())
-                .ifPresent(customer -> {
+                .ifPresent(c -> {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "Customer email already exists");
+                });
+        userRepository.findByUserEmail(request.getCustomersEmail())
+                .ifPresent(u -> {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Customer email already exists");
                 });
 
+        // Create User row (holds password & role)
+        User user = new User();
+        user.setFullName(request.getFullName());
+        user.setUserEmail(request.getCustomersEmail());
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setPhone(request.getPhone());
+        user.setRole(User.Role.CUSTOMER);
+        user.setStatus(User.Status.ACTIVE);
+        user.setAvatarUrl(request.getAvatarUrl());
+        User savedUser = userRepository.save(user);
+
+        // Create Customer profile row (no password)
         Customer customer = new Customer();
+        customer.setUser(savedUser);
         customer.setFullName(request.getFullName());
         customer.setCustomersEmail(request.getCustomersEmail());
-        customer.setPassword(passwordEncoder.encode(request.getPassword()));
         customer.setPhone(request.getPhone());
         customer.setAvatarUrl(request.getAvatarUrl());
+        customerRepository.save(customer);
 
-        Customer saved = customerRepository.save(customer);
-        String token = jwtUtils.generateToken(saved.getCustomersEmail(), "CUSTOMER");
-
-        return new AuthResponse(token, "CUSTOMER", saved.getFullName(), saved.getCustomersEmail());
+        String token = jwtUtils.generateToken(savedUser.getUserEmail(), "CUSTOMER");
+        return new AuthResponse(token, "CUSTOMER", savedUser.getFullName(), savedUser.getUserEmail());
     }
 
     @Override
     public AuthResponse login(LoginRequest request) {
-        Customer customer = customerRepository.findByCustomersEmail(request.getEmail()).orElse(null);
-        if (customer != null) {
-            if (!passwordEncoder.matches(request.getPassword(), customer.getPassword())) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect password");
-            }
-            String token = jwtUtils.generateToken(customer.getCustomersEmail(), "CUSTOMER");
-            return new AuthResponse(token, "CUSTOMER", customer.getFullName(), customer.getCustomersEmail());
+        // All accounts (including CUSTOMER) authenticate via the users table
+        User user = userRepository.findByUserEmail(request.getEmail())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect email"));
+
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect password");
         }
 
-        User user = userRepository.findByUserEmail(request.getEmail()).orElse(null);
-        if (user != null) {
-            if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect password");
-            }
-            String role = user.getRole();
-            String token = jwtUtils.generateToken(user.getUserEmail(), role);
-            return new AuthResponse(token, role, user.getFullName(), user.getUserEmail());
-        }
-
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect email");
+        String role = user.getRole().name();
+        String token = jwtUtils.generateToken(user.getUserEmail(), role);
+        return new AuthResponse(token, role, user.getFullName(), user.getUserEmail());
     }
 
     @Override
@@ -109,18 +116,30 @@ public class AuthServiceImpl implements AuthService {
 
             User user = userRepository.findByUserEmail(googleEmail).orElse(null);
             if (user != null) {
-                String token = jwtUtils.generateToken(user.getUserEmail(), user.getRole());
-                return new AuthResponse(token, user.getRole(), user.getFullName(), user.getUserEmail());
+                String token = jwtUtils.generateToken(user.getUserEmail(), user.getRole().name());
+                return new AuthResponse(token, user.getRole().name(), user.getFullName(), user.getUserEmail());
             }
 
             Customer customer = customerRepository.findByCustomersEmail(googleEmail).orElse(null);
             if (customer == null) {
+                // Create User row first (password stored here, not on Customer)
+                User newUser = new User();
+                newUser.setUserEmail(googleEmail);
+                newUser.setFullName(googleName);
+                newUser.setAvatarUrl(googleAvatar != null ? googleAvatar : "");
+                newUser.setPhone(null);
+                newUser.setRole(User.Role.CUSTOMER);
+                newUser.setStatus(User.Status.ACTIVE);
+                newUser.setPassword(passwordEncoder.encode(generateRandomPassword()));
+                User savedUser = userRepository.save(newUser);
+
+                // Create linked Customer profile (no password)
                 Customer newCustomer = new Customer();
+                newCustomer.setUser(savedUser);
                 newCustomer.setCustomersEmail(googleEmail);
                 newCustomer.setFullName(googleName);
-                newCustomer.setAvatarUrl(googleAvatar);
+                newCustomer.setAvatarUrl(googleAvatar != null ? googleAvatar : "");
                 newCustomer.setPhone(null);
-                newCustomer.setPassword(passwordEncoder.encode(generateRandomPassword()));
                 customer = customerRepository.save(newCustomer);
             }
 
