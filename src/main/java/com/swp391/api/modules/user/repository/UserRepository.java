@@ -6,4 +6,5 @@ import com.swp391.api.modules.user.entity.User;
 
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUserEmail(String email);
+    Optional<User> findByResetToken(String resetToken);
 }

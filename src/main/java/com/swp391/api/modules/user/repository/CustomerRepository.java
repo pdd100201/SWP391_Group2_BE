@@ -6,4 +6,6 @@ import com.swp391.api.modules.user.entity.Customer;
 
 public interface CustomerRepository extends JpaRepository<Customer, Long> {
     Optional<Customer> findByCustomersEmail(String email);
+    Optional<Customer> findByResetToken(String resetToken);
+    Optional<Customer> findByOtpCode(String otpCode);
 }
