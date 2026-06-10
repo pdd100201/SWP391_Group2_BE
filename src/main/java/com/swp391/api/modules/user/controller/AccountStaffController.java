@@ -1,11 +1,12 @@
 package com.swp391.api.modules.user.controller;
 
-import com.swp391.api.modules.user.dto.PageResponse;
 import com.swp391.api.modules.user.dto.StaffRequest;
 import com.swp391.api.modules.user.dto.StaffResponse;
 import com.swp391.api.modules.user.dto.StatusUpdateRequest;
 import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.service.AccountStaffService;
+
+import java.util.List;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,6 +24,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
+/**
+ * API quản lý tài khoản nhân viên (Staff).
+ * Chỉ ADMIN và MANAGER mới có quyền truy cập.
+ * Phân quyền chi tiết (MANAGER không được thao tác trên ADMIN/MANAGER)
+ * được xử lý trong AccountStaffServiceImpl.
+ */
 @RestController
 @RequestMapping("/api/admin/accounts/staff")
 @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
@@ -34,29 +41,29 @@ public class AccountStaffController {
         this.accountStaffService = accountStaffService;
     }
 
-    /**
-     * GET /api/admin/accounts/staff
-     * Lấy danh sách staff có phân trang, tìm kiếm, lọc.
-     */
+    // -------------------------------------------------------------------------
+    // LẤY DANH SÁCH NHÂN VIÊN
+    // GET /api/admin/accounts/staff?keyword=&role=&status=&page=&size=
+    // -------------------------------------------------------------------------
+
     @GetMapping
     public ResponseEntity<Map<String, Object>> getStaffList(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) User.Role role,
-            @RequestParam(required = false) User.Status status,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(required = false) User.Status status) {
 
-        PageResponse<StaffResponse> data = accountStaffService.getStaffList(keyword, role, status, page, size);
+        List<StaffResponse> data = accountStaffService.getStaffList(keyword, role, status);
         return ResponseEntity.ok(Map.of(
                 "message", "Staff list retrieved successfully",
                 "data", data
         ));
     }
 
-    /**
-     * GET /api/admin/accounts/staff/{id}
-     * Xem chi tiết staff.
-     */
+    // -------------------------------------------------------------------------
+    // LẤY CHI TIẾT MỘT NHÂN VIÊN
+    // GET /api/admin/accounts/staff/{id}
+    // -------------------------------------------------------------------------
+
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> getStaffById(@PathVariable Long id) {
         StaffResponse data = accountStaffService.getStaffById(id);
@@ -66,10 +73,11 @@ public class AccountStaffController {
         ));
     }
 
-    /**
-     * POST /api/admin/accounts/staff
-     * Tạo staff mới.
-     */
+    // -------------------------------------------------------------------------
+    // TẠO TÀI KHOẢN NHÂN VIÊN MỚI
+    // POST /api/admin/accounts/staff
+    // -------------------------------------------------------------------------
+
     @PostMapping
     public ResponseEntity<Map<String, Object>> createStaff(@Valid @RequestBody StaffRequest request) {
         StaffResponse data = accountStaffService.createStaff(request);
@@ -79,10 +87,11 @@ public class AccountStaffController {
         ));
     }
 
-    /**
-     * PUT /api/admin/accounts/staff/{id}
-     * Sửa thông tin staff.
-     */
+    // -------------------------------------------------------------------------
+    // CẬP NHẬT THÔNG TIN NHÂN VIÊN
+    // PUT /api/admin/accounts/staff/{id}
+    // -------------------------------------------------------------------------
+
     @PutMapping("/{id}")
     public ResponseEntity<Map<String, Object>> updateStaff(
             @PathVariable Long id,
@@ -94,10 +103,12 @@ public class AccountStaffController {
         ));
     }
 
-    /**
-     * PATCH /api/admin/accounts/staff/{id}/status
-     * Bật/tắt trạng thái ACTIVE/DEACTIVE.
-     */
+    // -------------------------------------------------------------------------
+    // ĐỔI TRẠNG THÁI NHÂN VIÊN (ACTIVE / DEACTIVE)
+    // PATCH /api/admin/accounts/staff/{id}/status
+    // Body tuỳ chọn: {"status": "ACTIVE"} hoặc để trống để tự đảo ngược
+    // -------------------------------------------------------------------------
+
     @PatchMapping("/{id}/status")
     public ResponseEntity<Map<String, Object>> updateStaffStatus(
             @PathVariable Long id,
@@ -110,10 +121,11 @@ public class AccountStaffController {
         ));
     }
 
-    /**
-     * DELETE /api/admin/accounts/staff/{id}
-     * Soft delete staff (set status = DEACTIVE).
-     */
+    // -------------------------------------------------------------------------
+    // XOÁ TÀI KHOẢN NHÂN VIÊN
+    // DELETE /api/admin/accounts/staff/{id}
+    // -------------------------------------------------------------------------
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Map<String, Object>> deleteStaff(@PathVariable Long id) {
         accountStaffService.deleteStaff(id);

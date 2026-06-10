@@ -2,17 +2,18 @@ package com.swp391.api.modules.user.service;
 
 import com.swp391.api.modules.user.dto.CustomerResponse;
 import com.swp391.api.modules.user.dto.CustomerUpdateRequest;
-import com.swp391.api.modules.user.dto.PageResponse;
 import com.swp391.api.modules.user.dto.StatusUpdateRequest;
 import com.swp391.api.modules.user.entity.User;
+
+import java.util.List;
 
 public interface AccountCustomerService {
 
     /**
-     * Get paginated list of customer accounts with optional filters.
+     * Lấy toàn bộ danh sách khách hàng, có thể lọc theo keyword/status.
+     * Phân trang được xử lý ở phía frontend.
      */
-    PageResponse<CustomerResponse> getCustomerList(String keyword, User.Status status,
-                                                   int page, int size);
+    List<CustomerResponse> getCustomerList(String keyword, User.Status status);
 
     /**
      * Get detail of a single customer by userId (joins users + customers tables).

@@ -1,18 +1,19 @@
 package com.swp391.api.modules.user.service;
 
-import com.swp391.api.modules.user.dto.PageResponse;
 import com.swp391.api.modules.user.dto.StaffRequest;
 import com.swp391.api.modules.user.dto.StaffResponse;
 import com.swp391.api.modules.user.dto.StatusUpdateRequest;
 import com.swp391.api.modules.user.entity.User;
 
+import java.util.List;
+
 public interface AccountStaffService {
 
     /**
-     * Get paginated list of staff accounts with optional filters.
+     * Lấy toàn bộ danh sách nhân viên, có thể lọc theo keyword/role/status.
+     * Phân trang được xử lý ở phía frontend.
      */
-    PageResponse<StaffResponse> getStaffList(String keyword, User.Role role,
-                                             User.Status status, int page, int size);
+    List<StaffResponse> getStaffList(String keyword, User.Role role, User.Status status);
 
     /**
      * Get detail of a single staff by userId.

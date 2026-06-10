@@ -2,10 +2,11 @@ package com.swp391.api.modules.user.controller;
 
 import com.swp391.api.modules.user.dto.CustomerResponse;
 import com.swp391.api.modules.user.dto.CustomerUpdateRequest;
-import com.swp391.api.modules.user.dto.PageResponse;
 import com.swp391.api.modules.user.dto.StatusUpdateRequest;
 import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.service.AccountCustomerService;
+
+import java.util.List;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -39,11 +40,9 @@ public class AccountCustomerController {
     @GetMapping
     public ResponseEntity<Map<String, Object>> getCustomerList(
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) User.Status status,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
+            @RequestParam(required = false) User.Status status) {
 
-        PageResponse<CustomerResponse> data = accountCustomerService.getCustomerList(keyword, status, page, size);
+        List<CustomerResponse> data = accountCustomerService.getCustomerList(keyword, status);
         return ResponseEntity.ok(Map.of(
                 "message", "Customer list retrieved successfully",
                 "data", data

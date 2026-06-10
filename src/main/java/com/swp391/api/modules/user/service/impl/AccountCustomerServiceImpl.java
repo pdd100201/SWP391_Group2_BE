@@ -2,17 +2,12 @@ package com.swp391.api.modules.user.service.impl;
 
 import com.swp391.api.modules.user.dto.CustomerResponse;
 import com.swp391.api.modules.user.dto.CustomerUpdateRequest;
-import com.swp391.api.modules.user.dto.PageResponse;
 import com.swp391.api.modules.user.dto.StatusUpdateRequest;
 import com.swp391.api.modules.user.entity.Customer;
 import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.repository.CustomerRepository;
 import com.swp391.api.modules.user.repository.UserRepository;
 import com.swp391.api.modules.user.service.AccountCustomerService;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +16,11 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Xử lý nghiệp vụ quản lý tài khoản khách hàng (Customer).
+ * Mỗi khách hàng gồm 2 bản ghi liên kết: User (tài khoản đăng nhập)
+ * và Customer (hồ sơ khách hàng với email riêng).
+ */
 @Service
 @Transactional
 public class AccountCustomerServiceImpl implements AccountCustomerService {
@@ -35,18 +35,17 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
     }
 
     // -------------------------------------------------------------------------
-    // GET LIST
+    // LẤY DANH SÁCH KHÁCH HÀNG (toàn bộ, phân trang xử lý ở frontend)
     // -------------------------------------------------------------------------
 
     @Override
     @Transactional(readOnly = true)
-    public PageResponse<CustomerResponse> getCustomerList(String keyword, User.Status status,
-                                                          int page, int size) {
+    public List<CustomerResponse> getCustomerList(String keyword, User.Status status) {
+        // Chuẩn hoá từ khoá tìm kiếm, nếu rỗng thì truyền null để truy vấn tất cả
         String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        Page<User> userPage = userRepository.findCustomers(kw, status, pageable);
 
-        List<CustomerResponse> content = userPage.getContent()
+        // Trả về toàn bộ danh sách matching, không giới hạn số lượng
+        return userRepository.findCustomers(kw, status)
                 .stream()
                 .map(user -> {
                     Customer customer = customerRepository.findByUser_UserId(user.getUserId())
@@ -54,25 +53,23 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
                     return toCustomerResponse(user, customer);
                 })
                 .collect(Collectors.toList());
-
-        return new PageResponse<>(content, userPage.getNumber(), userPage.getSize(),
-                userPage.getTotalElements(), userPage.getTotalPages());
     }
 
     // -------------------------------------------------------------------------
-    // GET BY ID
+    // LẤY THÔNG TIN CHI TIẾT MỘT KHÁCH HÀNG THEO ID
     // -------------------------------------------------------------------------
 
     @Override
     @Transactional(readOnly = true)
     public CustomerResponse getCustomerById(Long id) {
         User user = findCustomerUserOrThrow(id);
+        // Tra thêm hồ sơ Customer để lấy customerId và email hồ sơ
         Customer customer = customerRepository.findByUser_UserId(id).orElse(null);
         return toCustomerResponse(user, customer);
     }
 
     // -------------------------------------------------------------------------
-    // UPDATE
+    // CẬP NHẬT THÔNG TIN KHÁCH HÀNG
     // -------------------------------------------------------------------------
 
     @Override
@@ -80,37 +77,38 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
         User user = findCustomerUserOrThrow(id);
         Customer customer = customerRepository.findByUser_UserId(id).orElse(null);
 
-        if (request.getFullName() != null && !request.getFullName().isBlank()) {
-            user.setFullName(request.getFullName());
-            if (customer != null) {
-                customer.setFullName(request.getFullName());
-            }
+        // Cập nhật họ tên trên cả 2 bản ghi User và Customer
+        user.setFullName(request.getFullName());
+        if (customer != null) {
+            customer.setFullName(request.getFullName());
         }
-        if (request.getPhone() != null) {
-            user.setPhone(request.getPhone());
-            if (customer != null) {
-                customer.setPhone(request.getPhone());
-            }
+
+        // Cập nhật số điện thoại trên cả 2 bản ghi
+        user.setPhone(request.getPhone());
+        if (customer != null) {
+            customer.setPhone(request.getPhone());
         }
+
+        // Cập nhật avatar nếu có giá trị mới
         if (request.getAvatarUrl() != null) {
             user.setAvatarUrl(request.getAvatarUrl());
             if (customer != null) {
                 customer.setAvatarUrl(request.getAvatarUrl());
             }
         }
-        if (request.getCustomersEmail() != null && !request.getCustomersEmail().isBlank()) {
-            // Check uniqueness for customer email
-            if (customer != null
-                    && !customer.getCustomersEmail().equalsIgnoreCase(request.getCustomersEmail())
-                    && customerRepository.existsByCustomersEmail(request.getCustomersEmail())) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Customer email already in use: " + request.getCustomersEmail());
-            }
-            if (customer != null) {
-                customer.setCustomersEmail(request.getCustomersEmail());
-            }
+
+        // Kiểm tra email hồ sơ mới chưa bị dùng bởi khách hàng khác
+        if (customer != null
+                && !customer.getCustomersEmail().equalsIgnoreCase(request.getEmail())
+                && customerRepository.existsByCustomersEmail(request.getEmail())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Customer email already in use: " + request.getEmail());
+        }
+        if (customer != null) {
+            customer.setCustomersEmail(request.getEmail());
         }
 
+        // Lưu thay đổi vào cơ sở dữ liệu
         userRepository.save(user);
         if (customer != null) {
             customerRepository.save(customer);
@@ -119,7 +117,7 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
     }
 
     // -------------------------------------------------------------------------
-    // STATUS TOGGLE
+    // CẬP NHẬT TRẠNG THÁI KHÁCH HÀNG (ACTIVE / DEACTIVE)
     // -------------------------------------------------------------------------
 
     @Override
@@ -127,9 +125,11 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
         User user = findCustomerUserOrThrow(id);
 
         if (request.getStatus() == null) {
+            // Không truyền status → tự động đảo ngược trạng thái hiện tại
             user.setStatus(user.getStatus() == User.Status.ACTIVE
                     ? User.Status.DEACTIVE : User.Status.ACTIVE);
         } else {
+            // Truyền status cụ thể → gán trực tiếp
             user.setStatus(request.getStatus());
         }
 
@@ -139,21 +139,25 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
     }
 
     // -------------------------------------------------------------------------
-    // DELETE
+    // XOÁ TÀI KHOẢN KHÁCH HÀNG
     // -------------------------------------------------------------------------
 
     @Override
     public void deleteCustomer(Long id) {
         User user = findCustomerUserOrThrow(id);
-        // Delete customer profile first (FK constraint)
+        // Xoá hồ sơ Customer trước để tránh lỗi ràng buộc khoá ngoại (FK constraint)
         customerRepository.findByUser_UserId(id).ifPresent(customerRepository::delete);
         userRepository.delete(user);
     }
 
     // -------------------------------------------------------------------------
-    // HELPERS
+    // CÁC PHƯƠNG THỨC HỖ TRỢ (PRIVATE HELPERS)
     // -------------------------------------------------------------------------
 
+    /**
+     * Tìm user theo id và đảm bảo đó là tài khoản khách hàng (role = CUSTOMER).
+     * Ném 404 nếu không tìm thấy hoặc không phải CUSTOMER.
+     */
     private User findCustomerUserOrThrow(Long id) {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
@@ -165,20 +169,24 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
         return user;
     }
 
+    /**
+     * Chuyển đổi cặp (User, Customer) sang CustomerResponse DTO để trả về cho client.
+     * Email hiển thị lấy từ hồ sơ Customer (customersEmail), không phải email đăng nhập.
+     */
     private CustomerResponse toCustomerResponse(User user, Customer customer) {
         CustomerResponse res = new CustomerResponse();
-        res.setUserId(user.getUserId());
+        res.setId(user.getUserId());
         res.setFullName(user.getFullName());
-        res.setUserEmail(user.getUserEmail());
         res.setPhone(user.getPhone());
         res.setAvatarUrl(user.getAvatarUrl());
         res.setStatus(user.getStatus());
         res.setCreatedAt(user.getCreatedAt());
         res.setUpdatedAt(user.getUpdatedAt());
 
+        // Gán thêm thông tin từ hồ sơ Customer nếu tồn tại
         if (customer != null) {
             res.setCustomerId(customer.getCustomerId());
-            res.setCustomersEmail(customer.getCustomersEmail());
+            res.setEmail(customer.getCustomersEmail());
         }
         return res;
     }
