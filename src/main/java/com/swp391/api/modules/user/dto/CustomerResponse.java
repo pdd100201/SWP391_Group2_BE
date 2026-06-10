@@ -5,11 +5,10 @@ import java.time.LocalDateTime;
 
 public class CustomerResponse {
 
-    private Long userId;
+    private Long id;
     private Long customerId;
     private String fullName;
-    private String userEmail;
-    private String customersEmail;
+    private String email;
     private String phone;
     private String avatarUrl;
     private User.Status status;
@@ -18,12 +17,12 @@ public class CustomerResponse {
 
     public CustomerResponse() {}
 
-    public Long getUserId() {
-        return userId;
+    public Long getId() {
+        return id;
     }
 
-    public void setUserId(Long userId) {
-        this.userId = userId;
+    public void setId(Long id) {
+        this.id = id;
     }
 
     public Long getCustomerId() {
@@ -42,20 +41,12 @@ public class CustomerResponse {
         this.fullName = fullName;
     }
 
-    public String getUserEmail() {
-        return userEmail;
+    public String getEmail() {
+        return email;
     }
 
-    public void setUserEmail(String userEmail) {
-        this.userEmail = userEmail;
-    }
-
-    public String getCustomersEmail() {
-        return customersEmail;
-    }
-
-    public void setCustomersEmail(String customersEmail) {
-        this.customersEmail = customersEmail;
+    public void setEmail(String email) {
+        this.email = email;
     }
 
     public String getPhone() {

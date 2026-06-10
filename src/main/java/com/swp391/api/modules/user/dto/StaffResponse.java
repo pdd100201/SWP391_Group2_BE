@@ -5,9 +5,9 @@ import java.time.LocalDateTime;
 
 public class StaffResponse {
 
-    private Long userId;
+    private Long id;
     private String fullName;
-    private String userEmail;
+    private String email;
     private String phone;
     private User.Role role;
     private String avatarUrl;
@@ -17,12 +17,12 @@ public class StaffResponse {
 
     public StaffResponse() {}
 
-    public StaffResponse(Long userId, String fullName, String userEmail, String phone,
+    public StaffResponse(Long id, String fullName, String email, String phone,
                          User.Role role, String avatarUrl, User.Status status,
                          LocalDateTime createdAt, LocalDateTime updatedAt) {
-        this.userId = userId;
+        this.id = id;
         this.fullName = fullName;
-        this.userEmail = userEmail;
+        this.email = email;
         this.phone = phone;
         this.role = role;
         this.avatarUrl = avatarUrl;
@@ -31,12 +31,12 @@ public class StaffResponse {
         this.updatedAt = updatedAt;
     }
 
-    public Long getUserId() {
-        return userId;
+    public Long getId() {
+        return id;
     }
 
-    public void setUserId(Long userId) {
-        this.userId = userId;
+    public void setId(Long id) {
+        this.id = id;
     }
 
     public String getFullName() {
@@ -47,12 +47,12 @@ public class StaffResponse {
         this.fullName = fullName;
     }
 
-    public String getUserEmail() {
-        return userEmail;
+    public String getEmail() {
+        return email;
     }
 
-    public void setUserEmail(String userEmail) {
-        this.userEmail = userEmail;
+    public void setEmail(String email) {
+        this.email = email;
     }
 
     public String getPhone() {

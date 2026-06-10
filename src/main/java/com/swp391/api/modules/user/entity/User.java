@@ -15,7 +15,7 @@ import jakarta.persistence.Table;
 public class User extends BaseAuditableEntity {
 
     public enum Role {
-        ADMIN, MANAGER, WAITER, RECEPTIONIST, CHEF, CASHIER, CUSTOMER
+        ADMIN, MANAGER, WAITER, RECEPTIONIST, CUSTOMER
     }
 
     public enum Status {

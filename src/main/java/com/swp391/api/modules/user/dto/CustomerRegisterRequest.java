@@ -18,7 +18,8 @@ public class CustomerRegisterRequest {
     private String password;
 
     @NotBlank(message = "Phone number is required")
-    @Pattern(regexp = "^[0-9]{9,11}$", message = "Phone number must contain 9 to 11 digits")
+    @Pattern(regexp = "^0[1-9][0-9]{8,9}$",
+             message = "Phone number must start with 0, second digit 1-9, and be 10-11 digits")
     private String phone;
 
     private String avatarUrl;

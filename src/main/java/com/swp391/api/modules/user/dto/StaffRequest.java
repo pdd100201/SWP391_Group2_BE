@@ -13,15 +13,15 @@ public class StaffRequest {
 
     @NotBlank(message = "Email is required")
     @Email(message = "Email must be valid")
-    private String userEmail;
+    private String email;
 
-    /**
-     * Password is required only on creation.
-     * For updates, leave null/blank to keep existing password.
-     */
+    @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).{8,}$",
+             message = "Password must be at least 8 characters and include letters and numbers")
     private String password;
 
-    @Pattern(regexp = "^[0-9]{9,11}$", message = "Phone number must contain 9 to 11 digits")
+    @NotBlank(message = "Phone number is required")
+    @Pattern(regexp = "^0[1-9][0-9]{8,9}$",
+             message = "Phone number must start with 0, second digit 1-9, and be 10-11 digits")
     private String phone;
 
     @NotNull(message = "Role is required")
@@ -37,12 +37,12 @@ public class StaffRequest {
         this.fullName = fullName;
     }
 
-    public String getUserEmail() {
-        return userEmail;
+    public String getEmail() {
+        return email;
     }
 
-    public void setUserEmail(String userEmail) {
-        this.userEmail = userEmail;
+    public void setEmail(String email) {
+        this.email = email;
     }
 
     public String getPassword() {
