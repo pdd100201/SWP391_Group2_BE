@@ -1,6 +1,7 @@
 package com.swp391.api.modules.user.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 
 public class ChangePasswordRequest {
 
@@ -8,6 +9,7 @@ public class ChangePasswordRequest {
     private String oldPassword;
 
     @NotBlank(message = "New password is required")
+    @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).{8,}$", message = "New password must be at least 8 characters and include letters and numbers")
     private String newPassword;
 
     public String getOldPassword() {

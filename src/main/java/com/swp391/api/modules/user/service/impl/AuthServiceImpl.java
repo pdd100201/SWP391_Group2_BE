@@ -5,11 +5,12 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Random;
 import java.util.UUID;
+
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload;
-import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.gson.GsonFactory;
 import com.swp391.api.common.security.JwtUtils;
 import com.swp391.api.modules.user.dto.AuthResponse;
 import com.swp391.api.modules.user.dto.CustomerRegisterRequest;
@@ -38,6 +39,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional
 public class AuthServiceImpl implements AuthService {
 
+    // ID client của Google dùng để xác thực token đăng nhập bằng Google.
     private static final String GOOGLE_CLIENT_ID = "150115632028-8eqn9u4mse09dm8vj2dcquev3gp6vruq.apps.googleusercontent.com";
 
     private final CustomerRepository customerRepository;
@@ -61,6 +63,8 @@ public class AuthServiceImpl implements AuthService {
         this.jwtUtils = jwtUtils;
         this.javaMailSender = javaMailSender;
         this.frontendBaseUrl = frontendBaseUrl;
+
+        // Cấu hình bộ xác thực token Google với client ID mong đợi.
         this.googleIdTokenVerifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), GsonFactory.getDefaultInstance())
                 .setAudience(java.util.List.of(GOOGLE_CLIENT_ID))
                 .build();
@@ -68,11 +72,13 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse registerCustomer(CustomerRegisterRequest request) {
+        // Kiểm tra trùng email trước khi tạo tài khoản customer mới.
         customerRepository.findByCustomersEmail(request.getCustomersEmail())
                 .ifPresent(customer -> {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Customer email already exists");
                 });
 
+        // Chuyển dữ liệu đăng ký sang entity Customer.
         Customer customer = new Customer();
         customer.setFullName(request.getFullName());
         customer.setCustomersEmail(request.getCustomersEmail());
@@ -88,6 +94,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(LoginRequest request) {
+        // Ưu tiên kiểm tra tài khoản customer trước.
         Customer customer = customerRepository.findByCustomersEmail(request.getEmail()).orElse(null);
         if (customer != null) {
             if (!passwordEncoder.matches(request.getPassword(), customer.getPassword())) {
@@ -97,6 +104,7 @@ public class AuthServiceImpl implements AuthService {
             return new AuthResponse(token, "CUSTOMER", customer.getFullName(), customer.getCustomersEmail());
         }
 
+        // Then check staff/admin account.
         User user = userRepository.findByUserEmail(request.getEmail()).orElse(null);
         if (user != null) {
             if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
@@ -113,6 +121,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthResponse loginWithGoogle(GoogleLoginRequest request) {
         try {
+            // Verify Google credential token returned by the frontend Google login flow.
             GoogleIdToken idToken = googleIdTokenVerifier.verify(request.getCredentialToken());
             if (idToken == null) {
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid Google credential token");
@@ -123,12 +132,14 @@ public class AuthServiceImpl implements AuthService {
             String googleName = (String) payload.get("name");
             String googleAvatar = (String) payload.get("picture");
 
+            // If email already belongs to a staff account, login that account.
             User user = userRepository.findByUserEmail(googleEmail).orElse(null);
             if (user != null) {
                 String token = jwtUtils.generateToken(user.getUserEmail(), user.getRole());
                 return new AuthResponse(token, user.getRole(), user.getFullName(), user.getUserEmail());
             }
 
+            // Otherwise login or auto-create a customer account.
             Customer customer = customerRepository.findByCustomersEmail(googleEmail).orElse(null);
             if (customer == null) {
                 Customer newCustomer = new Customer();
@@ -156,11 +167,13 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public String forgotPassword(ForgotPasswordRequest request) {
+        // Start OTP flow by sending OTP to the email.
         return sendOtp(request.getEmail());
     }
 
     @Override
     public String resetPassword(ResetPasswordRequest request) {
+        // Reset password after OTP has been verified.
         return resetPasswordWithOtp(request.getEmail(), request.getNewPassword());
     }
 
@@ -171,16 +184,19 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public String resetPassword(String token, String newPassword) {
+        // Legacy token-based reset is intentionally disabled.
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Use OTP flow: verify OTP first, then reset password");
     }
 
     @Override
     public String sendOtp(String email) {
+        // Try sending OTP for staff account first.
         User user = userRepository.findByUserEmail(email).orElse(null);
         if (user != null) {
             return createAndSendOtpForUser(user, email);
         }
 
+        // Fall back to customer account.
         Customer customer = customerRepository.findByCustomersEmail(email).orElse(null);
         if (customer != null) {
             return createAndSendOtpForCustomer(customer, email);
@@ -191,6 +207,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public String verifyOtp(String email, String otp) {
+        // Verify OTP based on account type.
         User user = userRepository.findByUserEmail(email).orElse(null);
         if (user != null) {
             return verifyOtpForUser(user, otp);
@@ -206,6 +223,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public String resetPasswordWithOtp(String email, String newPassword) {
+        // Reset password for the verified OTP session.
         User user = userRepository.findByUserEmail(email).orElse(null);
         if (user != null) {
             return resetUserPasswordAfterOtp(user, newPassword);
