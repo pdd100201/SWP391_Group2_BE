@@ -1,4 +1,4 @@
-package com.swp391.api.modules.user.dto;
+package com.swp391.api.modules.account.dto;
 
 import java.util.List;
 
