@@ -5,8 +5,6 @@ import java.util.Date;
 import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
@@ -18,8 +16,7 @@ public class JwtUtils {
     private final SecretKey secretKey;
     private final long expirationMillis;
 
-    public JwtUtils(@Value("${jwt.secret}") String secret,
-                    @Value("${jwt.expiration}") long expirationMillis) {
+    public JwtUtils(@Value("${jwt.secret}") String secret, @Value("${jwt.expiration}") long expirationMillis) {
         byte[] keyBytes;
         try {
             keyBytes = Decoders.BASE64.decode(secret);
@@ -29,10 +26,6 @@ public class JwtUtils {
         this.secretKey = Keys.hmacShaKeyFor(keyBytes);
         this.expirationMillis = expirationMillis;
     }
-
-    // -------------------------------------------------------------------------
-    // Generate
-    // -------------------------------------------------------------------------
 
     public String generateToken(String subject, String role) {
         Date now = new Date();
@@ -47,45 +40,34 @@ public class JwtUtils {
                 .compact();
     }
 
-    // -------------------------------------------------------------------------
-    // Validate & Parse
-    // -------------------------------------------------------------------------
-
-    /**
-     * Validates signature and expiry. Returns true if valid.
-     */
-    public boolean validateToken(String token) {
+    // 1. Hàm kiểm tra token có hợp lệ không (chưa hết hạn, đúng chữ ký)
+    public boolean validateJwtToken(String authToken) {
         try {
-            parseClaims(token);
+            Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(authToken);
             return true;
-        } catch (JwtException | IllegalArgumentException e) {
-            return false;
+        } catch (Exception e) {
+            System.err.println("Token không hợp lệ hoặc đã hết hạn: " + e.getMessage());
         }
+        return false;
     }
 
-    /**
-     * Extracts the subject (email) from the token.
-     */
-    public String extractSubject(String token) {
-        return parseClaims(token).getSubject();
-    }
-
-    /**
-     * Extracts the role claim from the token.
-     */
-    public String extractRole(String token) {
-        return parseClaims(token).get("role", String.class);
-    }
-
-    // -------------------------------------------------------------------------
-    // Internal
-    // -------------------------------------------------------------------------
-
-    private Claims parseClaims(String token) {
+    // 2. Hàm lôi Email ra từ Token
+    public String getEmailFromToken(String token) {
         return Jwts.parser()
                 .verifyWith(secretKey)
                 .build()
                 .parseSignedClaims(token)
-                .getPayload();
+                .getPayload()
+                .getSubject();
+    }
+
+    // 3. Hàm lôi Role ra từ Token
+    public String getRoleFromToken(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get("role", String.class);
     }
 }

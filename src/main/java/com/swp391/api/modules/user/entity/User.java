@@ -6,10 +6,15 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "users")
 public class User extends BaseAuditableEntity {
+
+    public enum Status {
+        ACTIVE, DEACTIVE
+    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -31,11 +36,23 @@ public class User extends BaseAuditableEntity {
     @Column(name = "avatar_url")
     private String avatarUrl;
 
+    @Column(name = "reset_token")
+    private String resetToken;
+
+    @Column(name = "reset_token_expiry")
+    private LocalDateTime resetTokenExpiry;
+
+    @Column(name = "reset_token_verified")
+    private Boolean resetTokenVerified = Boolean.FALSE;
+
     @Column(name = "role", nullable = false)
     private String role;
 
+    @Column(name = "status")
+    private String status;
+
     @Column(name = "is_active")
-    private Boolean isActive = true;
+    private Boolean isActive;
 
     public Long getUserId() {
         return userId;
@@ -85,12 +102,44 @@ public class User extends BaseAuditableEntity {
         this.avatarUrl = avatarUrl;
     }
 
+    public String getResetToken() {
+        return resetToken;
+    }
+
+    public void setResetToken(String resetToken) {
+        this.resetToken = resetToken;
+    }
+
+    public LocalDateTime getResetTokenExpiry() {
+        return resetTokenExpiry;
+    }
+
+    public void setResetTokenExpiry(LocalDateTime resetTokenExpiry) {
+        this.resetTokenExpiry = resetTokenExpiry;
+    }
+
+    public Boolean getResetTokenVerified() {
+        return resetTokenVerified;
+    }
+
+    public void setResetTokenVerified(Boolean resetTokenVerified) {
+        this.resetTokenVerified = resetTokenVerified;
+    }
+
     public String getRole() {
         return role;
     }
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
     }
 
     public Boolean getIsActive() {

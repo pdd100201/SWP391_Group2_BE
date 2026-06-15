@@ -27,9 +27,14 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
     @Override
     @Transactional(readOnly = true)
     public List<CustomerResponse> getCustomerList(String keyword, Boolean isActive) {
-        String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
-        return customerRepository.findAllCustomers(kw, isActive)
+        String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim().toLowerCase();
+        return customerRepository.findAll()
                 .stream()
+                .filter(c -> kw == null
+                        || c.getFullName().toLowerCase().contains(kw)
+                        || c.getCustomersEmail().toLowerCase().contains(kw))
+                .filter(c -> isActive == null
+                        || isActive.equals(Boolean.TRUE.equals(c.getIsActive())))
                 .map(this::toCustomerResponse)
                 .collect(Collectors.toList());
     }
@@ -45,7 +50,7 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
         Customer customer = findOrThrow(id);
 
         if (!customer.getCustomersEmail().equalsIgnoreCase(request.getEmail())
-                && customerRepository.existsByCustomersEmail(request.getEmail())) {
+                && customerRepository.findByCustomersEmail(request.getEmail()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Email already in use: " + request.getEmail());
         }
@@ -65,7 +70,6 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
         Customer customer = findOrThrow(id);
 
         if (request.getIsActive() == null) {
-            // Toggle: đảo ngược trạng thái hiện tại
             customer.setIsActive(!Boolean.TRUE.equals(customer.getIsActive()));
         } else {
             customer.setIsActive(request.getIsActive());

@@ -3,23 +3,27 @@ package com.swp391.api.modules.user.dto;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 public class CustomerRegisterRequest {
     @NotBlank(message = "Full name is required")
-    @Pattern(regexp = "^[A-Za-zÀ-ỹ\s]{2,}$", message = "Full name must contain only letters and be at least 2 characters")
+    @Size(min = 2, max = 50, message = "Full name must be between 2 and 50 characters")
+    @Pattern(
+        regexp = "^[a-zA-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚĂĐĨŨƠàáâãèéêìíòóôõùúăđĩũơƯĂẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼỀỀỂưăạảấầẩẫậắằẳẵặẹẻẽềềểỄỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪễệỉịọỏốồổỗộớờởỡợụủứừỬỮỰỲÝỴÝỳýỵỷỹ\\s]+$",
+        message = "Full name must contain only letters"
+    )
     private String fullName;
 
     @NotBlank(message = "Email is required")
     @Email(message = "Email must be valid")
-    private String customersEmail;
+    private String customersEmail; // field name is customersEmail, as required
 
     @NotBlank(message = "Password is required")
     @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).{8,}$", message = "Password must be at least 8 characters and include letters and numbers")
     private String password;
 
     @NotBlank(message = "Phone number is required")
-    @Pattern(regexp = "^0[1-9][0-9]{8,9}$",
-             message = "Phone number must start with 0, second digit 1-9, and be 10-11 digits")
+    @Pattern(regexp = "^[0-9]{9,11}$", message = "Phone number must contain 9 to 11 digits")
     private String phone;
 
     private String avatarUrl;
