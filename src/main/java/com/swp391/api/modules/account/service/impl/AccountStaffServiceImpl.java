@@ -33,10 +33,21 @@ public class AccountStaffServiceImpl implements AccountStaffService {
     @Override
     @Transactional(readOnly = true)
     public List<StaffResponse> getStaffList(String keyword, String role, Boolean isActive) {
-        String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
-        String r = (role == null || role.isBlank()) ? null : role.trim();
-        return userRepository.findStaff(kw, r, isActive)
+        String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim().toLowerCase();
+        String r = (role == null || role.isBlank()) ? null : role.trim().toUpperCase();
+        return userRepository.findAll()
                 .stream()
+                .filter(u -> !"CUSTOMER".equalsIgnoreCase(u.getRole()))
+                .filter(u -> kw == null
+                        || u.getFullName().toLowerCase().contains(kw)
+                        || u.getUserEmail().toLowerCase().contains(kw))
+                .filter(u -> r == null || r.equalsIgnoreCase(u.getRole()))
+                .filter(u -> isActive == null || isActive.equals(Boolean.TRUE.equals(u.getIsActive())))
+                .sorted((a, b) -> {
+                    if (a.getCreatedAt() == null) return 1;
+                    if (b.getCreatedAt() == null) return -1;
+                    return b.getCreatedAt().compareTo(a.getCreatedAt());
+                })
                 .map(this::toStaffResponse)
                 .collect(Collectors.toList());
     }
@@ -68,7 +79,7 @@ public class AccountStaffServiceImpl implements AccountStaffService {
                     "Password must be at least 8 characters and include letters and numbers");
         }
 
-        if (userRepository.existsByUserEmail(request.getEmail())) {
+        if (userRepository.findByUserEmail(request.getEmail()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Email already in use: " + request.getEmail());
         }
@@ -101,7 +112,7 @@ public class AccountStaffServiceImpl implements AccountStaffService {
         }
 
         if (!user.getUserEmail().equalsIgnoreCase(request.getEmail())
-                && userRepository.existsByUserEmail(request.getEmail())) {
+                && userRepository.findByUserEmail(request.getEmail()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Email already in use: " + request.getEmail());
         }

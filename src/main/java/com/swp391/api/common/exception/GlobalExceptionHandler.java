@@ -1,4 +1,4 @@
-package com.swp391.api.common.exception;
+package com.swp391.api.config;
 
 import java.util.HashMap;
 import java.util.Map;
