@@ -19,25 +19,27 @@ public class DefaultUsersSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        seedUser("System Admin", "admin@goldenspoon.vn", "admin123", "0900000000", User.Role.ADMIN);
-        seedUser("Restaurant Manager", "manager@goldenspoon.vn", "manager123", "0900000001", User.Role.MANAGER);
-        seedUser("Front Desk", "reception@goldenspoon.vn", "reception123", "0900000002", User.Role.RECEPTIONIST);
-        seedUser("Service Staff", "waiter@goldenspoon.vn", "waiter123", "0900000003", User.Role.WAITER);
+        seedUser("System Admin", "admin@goldenspoon.vn", "admin123", "0900000000", "ADMIN");
+        seedUser("Restaurant Manager", "manager@goldenspoon.vn", "manager123", "0900000001", "MANAGER");
+        seedUser("Front Desk", "reception@goldenspoon.vn", "reception123", "0900000002", "RECEPTIONIST");
+        seedUser("Service Staff", "waiter@goldenspoon.vn", "waiter123", "0900000003", "WAITER");
     }
 
-    private void seedUser(String fullName, String email, String rawPassword, String phone, User.Role role) {
-        if (userRepository.findByUserEmail(email).isPresent()) {
-            return;
-        }
-
-        User user = new User();
-        user.setFullName(fullName);
-        user.setUserEmail(email);
-        user.setPassword(passwordEncoder.encode(rawPassword));
-        user.setPhone(phone);
-        user.setRole(role);
-        user.setStatus(User.Status.ACTIVE);
-
-        userRepository.save(user);
+    private void seedUser(String fullName, String email, String rawPassword, String phone, String role) {
+        userRepository.findByUserEmail(email).ifPresentOrElse(existing -> {
+            if (existing.getIsActive() == null) {
+                existing.setIsActive(true);
+                userRepository.save(existing);
+            }
+        }, () -> {
+            User user = new User();
+            user.setFullName(fullName);
+            user.setUserEmail(email);
+            user.setPassword(passwordEncoder.encode(rawPassword));
+            user.setPhone(phone);
+            user.setRole(role);
+            user.setIsActive(true);
+            userRepository.save(user);
+        });
     }
 }

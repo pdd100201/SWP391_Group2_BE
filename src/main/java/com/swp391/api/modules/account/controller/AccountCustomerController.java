@@ -1,10 +1,9 @@
-package com.swp391.api.modules.user.controller;
+package com.swp391.api.modules.account.controller;
 
-import com.swp391.api.modules.user.dto.CustomerResponse;
-import com.swp391.api.modules.user.dto.CustomerUpdateRequest;
-import com.swp391.api.modules.user.dto.StatusUpdateRequest;
-import com.swp391.api.modules.user.entity.User;
-import com.swp391.api.modules.user.service.AccountCustomerService;
+import com.swp391.api.modules.account.dto.CustomerResponse;
+import com.swp391.api.modules.account.dto.CustomerUpdateRequest;
+import com.swp391.api.modules.account.dto.StatusUpdateRequest;
+import com.swp391.api.modules.account.service.AccountCustomerService;
 
 import java.util.List;
 import jakarta.validation.Valid;
@@ -33,75 +32,41 @@ public class AccountCustomerController {
         this.accountCustomerService = accountCustomerService;
     }
 
-    /**
-     * GET /api/admin/accounts/customer
-     * Lấy danh sách customer có phân trang, tìm kiếm, lọc.
-     */
     @GetMapping
     public ResponseEntity<Map<String, Object>> getCustomerList(
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) User.Status status) {
+            @RequestParam(required = false) Boolean isActive) {
 
-        List<CustomerResponse> data = accountCustomerService.getCustomerList(keyword, status);
-        return ResponseEntity.ok(Map.of(
-                "message", "Customer list retrieved successfully",
-                "data", data
-        ));
+        List<CustomerResponse> data = accountCustomerService.getCustomerList(keyword, isActive);
+        return ResponseEntity.ok(Map.of("message", "Customer list retrieved successfully", "data", data));
     }
 
-    /**
-     * GET /api/admin/accounts/customer/{id}
-     * Xem chi tiết customer (join bảng customers).
-     */
     @GetMapping("/{id}")
     public ResponseEntity<Map<String, Object>> getCustomerById(@PathVariable Long id) {
         CustomerResponse data = accountCustomerService.getCustomerById(id);
-        return ResponseEntity.ok(Map.of(
-                "message", "Customer retrieved successfully",
-                "data", data
-        ));
+        return ResponseEntity.ok(Map.of("message", "Customer retrieved successfully", "data", data));
     }
 
-    /**
-     * PUT /api/admin/accounts/customer/{id}
-     * Sửa thông tin customer.
-     */
     @PutMapping("/{id}")
     public ResponseEntity<Map<String, Object>> updateCustomer(
             @PathVariable Long id,
             @Valid @RequestBody CustomerUpdateRequest request) {
         CustomerResponse data = accountCustomerService.updateCustomer(id, request);
-        return ResponseEntity.ok(Map.of(
-                "message", "Customer updated successfully",
-                "data", data
-        ));
+        return ResponseEntity.ok(Map.of("message", "Customer updated successfully", "data", data));
     }
 
-    /**
-     * PATCH /api/admin/accounts/customer/{id}/status
-     * Bật/tắt trạng thái ACTIVE/DEACTIVE.
-     */
     @PatchMapping("/{id}/status")
     public ResponseEntity<Map<String, Object>> updateCustomerStatus(
             @PathVariable Long id,
             @RequestBody(required = false) StatusUpdateRequest request) {
         CustomerResponse data = accountCustomerService.updateCustomerStatus(id,
                 request != null ? request : new StatusUpdateRequest());
-        return ResponseEntity.ok(Map.of(
-                "message", "Customer status updated successfully",
-                "data", data
-        ));
+        return ResponseEntity.ok(Map.of("message", "Customer status updated successfully", "data", data));
     }
 
-    /**
-     * DELETE /api/admin/accounts/customer/{id}
-     * Xóa customer.
-     */
     @DeleteMapping("/{id}")
     public ResponseEntity<Map<String, Object>> deleteCustomer(@PathVariable Long id) {
         accountCustomerService.deleteCustomer(id);
-        return ResponseEntity.ok(Map.of(
-                "message", "Customer deleted successfully"
-        ));
+        return ResponseEntity.ok(Map.of("message", "Customer deleted successfully"));
     }
 }

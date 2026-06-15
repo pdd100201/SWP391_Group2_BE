@@ -14,27 +14,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     boolean existsByUserEmail(String email);
 
-    /**
-     * Lấy toàn bộ danh sách nhân viên (không phân trang), có thể lọc theo keyword/role/status.
-     */
-    @Query("SELECT u FROM User u WHERE u.role <> 'CUSTOMER' " +
+    @Query("SELECT u FROM User u " +
+           "WHERE UPPER(u.role) <> 'CUSTOMER' " +
            "AND (:keyword IS NULL OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
            "     OR LOWER(u.userEmail) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
            "AND (:role IS NULL OR u.role = :role) " +
-           "AND (:status IS NULL OR u.status = :status) " +
+           "AND (:isActive IS NULL OR u.isActive = :isActive) " +
            "ORDER BY u.createdAt DESC")
     List<User> findStaff(@Param("keyword") String keyword,
-                         @Param("role") User.Role role,
-                         @Param("status") User.Status status);
-
-    /**
-     * Lấy toàn bộ danh sách khách hàng (không phân trang), có thể lọc theo keyword/status.
-     */
-    @Query("SELECT u FROM User u WHERE u.role = 'CUSTOMER' " +
-           "AND (:keyword IS NULL OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-           "     OR LOWER(u.userEmail) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-           "AND (:status IS NULL OR u.status = :status) " +
-           "ORDER BY u.createdAt DESC")
-    List<User> findCustomers(@Param("keyword") String keyword,
-                             @Param("status") User.Status status);
+                         @Param("role") String role,
+                         @Param("isActive") Boolean isActive);
 }
