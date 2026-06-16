@@ -100,6 +100,9 @@ public class AuthServiceImpl implements AuthService {
             if (!passwordEncoder.matches(request.getPassword(), customer.getPassword())) {
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect password");
             }
+            if (Boolean.FALSE.equals(customer.getIsActive())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account has been deactivated");
+            }
             String token = jwtUtils.generateToken(customer.getCustomersEmail(), "CUSTOMER");
             return new AuthResponse(token, "CUSTOMER", customer.getFullName(), customer.getCustomersEmail());
         }
@@ -109,6 +112,9 @@ public class AuthServiceImpl implements AuthService {
         if (user != null) {
             if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect password");
+            }
+            if (Boolean.FALSE.equals(user.getIsActive())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account has been deactivated");
             }
             String role = user.getRole();
             String token = jwtUtils.generateToken(user.getUserEmail(), role);
@@ -135,6 +141,9 @@ public class AuthServiceImpl implements AuthService {
             // If email already belongs to a staff account, login that account.
             User user = userRepository.findByUserEmail(googleEmail).orElse(null);
             if (user != null) {
+                if (Boolean.FALSE.equals(user.getIsActive())) {
+                    throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account has been deactivated");
+                }
                 String token = jwtUtils.generateToken(user.getUserEmail(), user.getRole());
                 return new AuthResponse(token, user.getRole(), user.getFullName(), user.getUserEmail());
             }
@@ -149,6 +158,8 @@ public class AuthServiceImpl implements AuthService {
                 newCustomer.setPhone(null);
                 newCustomer.setPassword(passwordEncoder.encode(generateRandomPassword()));
                 customer = customerRepository.save(newCustomer);
+            } else if (Boolean.FALSE.equals(customer.getIsActive())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account has been deactivated");
             }
 
             String token = jwtUtils.generateToken(customer.getCustomersEmail(), "CUSTOMER");

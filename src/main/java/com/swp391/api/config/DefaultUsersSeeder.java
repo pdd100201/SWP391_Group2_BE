@@ -2,7 +2,6 @@ package com.swp391.api.config;
 
 import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.repository.UserRepository;
-import java.util.List;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -27,19 +26,20 @@ public class DefaultUsersSeeder implements CommandLineRunner {
     }
 
     private void seedUser(String fullName, String email, String rawPassword, String phone, String role) {
-        if (userRepository.findByUserEmail(email).isPresent()) {
-            return;
-        }
-
-        User user = new User();
-        user.setFullName(fullName);
-        user.setUserEmail(email);
-        user.setPassword(passwordEncoder.encode(rawPassword));
-        user.setPhone(phone);
-        user.setRole(role);
-        user.setStatus("ACTIVE");
-        user.setIsActive(true);
-
-        userRepository.save(user);
+        userRepository.findByUserEmail(email).ifPresentOrElse(existing -> {
+            if (existing.getIsActive() == null) {
+                existing.setIsActive(true);
+                userRepository.save(existing);
+            }
+        }, () -> {
+            User user = new User();
+            user.setFullName(fullName);
+            user.setUserEmail(email);
+            user.setPassword(passwordEncoder.encode(rawPassword));
+            user.setPhone(phone);
+            user.setRole(role);
+            user.setIsActive(true);
+            userRepository.save(user);
+        });
     }
 }
