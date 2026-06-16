@@ -45,9 +45,6 @@ public class Customer extends BaseAuditableEntity {
     @Column(name = "otp_expiry")
     private LocalDateTime otpExpiry;
 
-    @Column(name = "is_active")
-    private Boolean isActive = Boolean.TRUE;
-
     public Long getCustomerId() {
         return customerId;
     }
@@ -126,14 +123,6 @@ public class Customer extends BaseAuditableEntity {
 
     public void setOtpExpiry(LocalDateTime otpExpiry) {
         this.otpExpiry = otpExpiry;
-    }
-
-    public Boolean getIsActive() {
-        return isActive;
-    }
-
-    public void setIsActive(Boolean isActive) {
-        this.isActive = isActive;
     }
 
     @PrePersist
