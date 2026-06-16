@@ -100,9 +100,6 @@ public class AuthServiceImpl implements AuthService {
             if (!passwordEncoder.matches(request.getPassword(), customer.getPassword())) {
                 throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Incorrect password");
             }
-            if (Boolean.FALSE.equals(customer.getIsActive())) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account has been deactivated");
-            }
             String token = jwtUtils.generateToken(customer.getCustomersEmail(), "CUSTOMER");
             return new AuthResponse(token, "CUSTOMER", customer.getFullName(), customer.getCustomersEmail());
         }
@@ -158,8 +155,6 @@ public class AuthServiceImpl implements AuthService {
                 newCustomer.setPhone(null);
                 newCustomer.setPassword(passwordEncoder.encode(generateRandomPassword()));
                 customer = customerRepository.save(newCustomer);
-            } else if (Boolean.FALSE.equals(customer.getIsActive())) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Account has been deactivated");
             }
 
             String token = jwtUtils.generateToken(customer.getCustomersEmail(), "CUSTOMER");

@@ -2,7 +2,6 @@ package com.swp391.api.modules.account.service.impl;
 
 import com.swp391.api.modules.account.dto.CustomerResponse;
 import com.swp391.api.modules.account.dto.CustomerUpdateRequest;
-import com.swp391.api.modules.account.dto.StatusUpdateRequest;
 import com.swp391.api.modules.account.service.AccountCustomerService;
 import com.swp391.api.modules.user.entity.Customer;
 import com.swp391.api.modules.user.repository.CustomerRepository;
@@ -26,15 +25,13 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<CustomerResponse> getCustomerList(String keyword, Boolean isActive) {
+    public List<CustomerResponse> getCustomerList(String keyword) {
         String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim().toLowerCase();
         return customerRepository.findAll()
                 .stream()
                 .filter(c -> kw == null
                         || c.getFullName().toLowerCase().contains(kw)
                         || c.getCustomersEmail().toLowerCase().contains(kw))
-                .filter(c -> isActive == null
-                        || isActive.equals(Boolean.TRUE.equals(c.getIsActive())))
                 .map(this::toCustomerResponse)
                 .collect(Collectors.toList());
     }
@@ -66,19 +63,6 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
     }
 
     @Override
-    public CustomerResponse updateCustomerStatus(Long id, StatusUpdateRequest request) {
-        Customer customer = findOrThrow(id);
-
-        if (request.getIsActive() == null) {
-            customer.setIsActive(!Boolean.TRUE.equals(customer.getIsActive()));
-        } else {
-            customer.setIsActive(request.getIsActive());
-        }
-
-        return toCustomerResponse(customerRepository.save(customer));
-    }
-
-    @Override
     public void deleteCustomer(Long id) {
         customerRepository.delete(findOrThrow(id));
     }
@@ -96,7 +80,6 @@ public class AccountCustomerServiceImpl implements AccountCustomerService {
         res.setEmail(customer.getCustomersEmail());
         res.setPhone(customer.getPhone());
         res.setAvatarUrl(customer.getAvatarUrl());
-        res.setIsActive(customer.getIsActive());
         res.setCreatedAt(customer.getCreatedAt());
         res.setUpdatedAt(customer.getUpdatedAt());
         return res;

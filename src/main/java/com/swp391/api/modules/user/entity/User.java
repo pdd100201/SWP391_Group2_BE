@@ -12,10 +12,6 @@ import java.time.LocalDateTime;
 @Table(name = "users")
 public class User extends BaseAuditableEntity {
 
-    public enum Status {
-        ACTIVE, DEACTIVE
-    }
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "user_id")
@@ -47,9 +43,6 @@ public class User extends BaseAuditableEntity {
 
     @Column(name = "role", nullable = false)
     private String role;
-
-    @Column(name = "status")
-    private String status;
 
     @Column(name = "is_active")
     private Boolean isActive;
@@ -132,14 +125,6 @@ public class User extends BaseAuditableEntity {
 
     public void setRole(String role) {
         this.role = role;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
     }
 
     public Boolean getIsActive() {
