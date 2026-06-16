@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -35,19 +36,12 @@ public class AccountStaffServiceImpl implements AccountStaffService {
     public List<StaffResponse> getStaffList(String keyword, String role, Boolean isActive) {
         String kw = (keyword == null || keyword.isBlank()) ? null : keyword.trim().toLowerCase();
         String r = (role == null || role.isBlank()) ? null : role.trim().toUpperCase();
-        return userRepository.findAll()
-                .stream()
+        return userRepository.findAll().stream()
                 .filter(u -> !"CUSTOMER".equalsIgnoreCase(u.getRole()))
-                .filter(u -> kw == null
-                        || u.getFullName().toLowerCase().contains(kw)
-                        || u.getUserEmail().toLowerCase().contains(kw))
+                .filter(u -> kw == null || containsIgnoreCase(u.getFullName(), kw) || containsIgnoreCase(u.getUserEmail(), kw))
                 .filter(u -> r == null || r.equalsIgnoreCase(u.getRole()))
                 .filter(u -> isActive == null || isActive.equals(Boolean.TRUE.equals(u.getIsActive())))
-                .sorted((a, b) -> {
-                    if (a.getCreatedAt() == null) return 1;
-                    if (b.getCreatedAt() == null) return -1;
-                    return b.getCreatedAt().compareTo(a.getCreatedAt());
-                })
+                .sorted(Comparator.comparing(User::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(this::toStaffResponse)
                 .collect(Collectors.toList());
     }
@@ -60,12 +54,13 @@ public class AccountStaffServiceImpl implements AccountStaffService {
 
     @Override
     public StaffResponse createStaff(StaffRequest request) {
-        if ("CUSTOMER".equalsIgnoreCase(request.getRole())) {
+        String requestedRole = parseRole(request.getRole());
+        if ("CUSTOMER".equalsIgnoreCase(requestedRole)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Role CUSTOMER is not allowed for staff accounts");
         }
 
-        if ("MANAGER".equals(getCurrentRole()) && isAdminOrManager(request.getRole())) {
+        if ("MANAGER".equals(getCurrentRole()) && isAdminOrManager(requestedRole)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Manager cannot manage ADMIN or MANAGER accounts");
         }
@@ -89,7 +84,7 @@ public class AccountStaffServiceImpl implements AccountStaffService {
         user.setUserEmail(request.getEmail());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setPhone(request.getPhone());
-        user.setRole(request.getRole().toUpperCase());
+        user.setRole(requestedRole);
         user.setAvatarUrl(request.getAvatarUrl());
         user.setIsActive(true);
 
@@ -100,13 +95,14 @@ public class AccountStaffServiceImpl implements AccountStaffService {
     public StaffResponse updateStaff(Long id, StaffRequest request) {
         User user = findStaffOrThrow(id);
 
-        if ("CUSTOMER".equalsIgnoreCase(request.getRole())) {
+        String requestedRole = parseRole(request.getRole());
+        if ("CUSTOMER".equalsIgnoreCase(requestedRole)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Role CUSTOMER is not allowed for staff accounts");
         }
 
         if ("MANAGER".equals(getCurrentRole())
-                && (isAdminOrManager(user.getRole()) || isAdminOrManager(request.getRole()))) {
+                && (isAdminOrManager(user.getRole()) || isAdminOrManager(requestedRole))) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Manager cannot manage ADMIN or MANAGER accounts");
         }
@@ -120,7 +116,7 @@ public class AccountStaffServiceImpl implements AccountStaffService {
         user.setFullName(request.getFullName());
         user.setUserEmail(request.getEmail());
         user.setPhone(request.getPhone());
-        user.setRole(request.getRole().toUpperCase());
+        user.setRole(requestedRole);
         if (request.getAvatarUrl() != null) {
             user.setAvatarUrl(request.getAvatarUrl());
         }
@@ -141,7 +137,6 @@ public class AccountStaffServiceImpl implements AccountStaffService {
         }
 
         if (request.getIsActive() == null) {
-            // Toggle: đảo ngược trạng thái hiện tại
             user.setIsActive(!Boolean.TRUE.equals(user.getIsActive()));
         } else {
             user.setIsActive(request.getIsActive());
@@ -173,6 +168,17 @@ public class AccountStaffServiceImpl implements AccountStaffService {
 
     private boolean isAdminOrManager(String role) {
         return "ADMIN".equalsIgnoreCase(role) || "MANAGER".equalsIgnoreCase(role);
+    }
+
+    private String parseRole(String role) {
+        if (role == null || role.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Role is required");
+        }
+        return role.trim().toUpperCase();
+    }
+
+    private boolean containsIgnoreCase(String value, String keyword) {
+        return value != null && value.toLowerCase().contains(keyword);
     }
 
     private User findStaffOrThrow(Long id) {
