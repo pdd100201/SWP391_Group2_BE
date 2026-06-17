@@ -130,8 +130,5 @@ public class Customer extends BaseAuditableEntity {
         if (avatarUrl == null || avatarUrl.isBlank()) {
             avatarUrl = "";
         }
-        if (isActive == null) {
-            isActive = Boolean.TRUE;
-        }
     }
 }
