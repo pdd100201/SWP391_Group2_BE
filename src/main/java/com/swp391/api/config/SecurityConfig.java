@@ -15,7 +15,7 @@ import com.swp391.api.common.security.JwtAuthenticationFilter;
 @Configuration
 public class SecurityConfig {
 
-    private final JwtAuthenticationFilter jwtAuthFilter; 
+    private final JwtAuthenticationFilter jwtAuthFilter;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthFilter) {
         this.jwtAuthFilter = jwtAuthFilter;
@@ -34,9 +34,10 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/").permitAll()
+                        .requestMatchers("/api/inventory/**").hasAnyAuthority("ADMIN", "MANAGER")
                         .anyRequest().authenticated()
                 )
-                // 2. THÊM DÒNG QUAN TRỌNG NÀY: Đặt bảo vệ ra chặn cửa kiểm tra Token
+                // kiểm tra Token
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
