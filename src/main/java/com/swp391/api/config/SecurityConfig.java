@@ -36,12 +36,12 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/").permitAll()
-                        .requestMatchers("/api/inventory/**").hasAnyAuthority("ADMIN", "MANAGER")
-                        .requestMatchers("/api/menu/**").hasAnyAuthority("ADMIN", "MANAGER", "WAITER")
+                        .requestMatchers("/api/inventory/**").hasAnyRole("ADMIN", "MANAGER")
+                        .requestMatchers("/api/menu/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
                         .anyRequest().authenticated()
                 )
                 // kiểm tra Token
-                .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

@@ -29,6 +29,18 @@ public class User extends BaseAuditableEntity {
     @Column(name = "phone")
     private String phone;
 
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
+    @Column(name = "reset_token")
+    private String resetToken;
+
+    @Column(name = "reset_token_expiry")
+    private LocalDateTime resetTokenExpiry;
+
+    @Column(name = "reset_token_verified")
+    private Boolean resetTokenVerified = Boolean.FALSE;
+
     @Column(name = "role", nullable = false)
     private String role;
 
@@ -76,6 +88,38 @@ public class User extends BaseAuditableEntity {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
+    }
+
+    public String getResetToken() {
+        return resetToken;
+    }
+
+    public void setResetToken(String resetToken) {
+        this.resetToken = resetToken;
+    }
+
+    public LocalDateTime getResetTokenExpiry() {
+        return resetTokenExpiry;
+    }
+
+    public void setResetTokenExpiry(LocalDateTime resetTokenExpiry) {
+        this.resetTokenExpiry = resetTokenExpiry;
+    }
+
+    public Boolean getResetTokenVerified() {
+        return resetTokenVerified;
+    }
+
+    public void setResetTokenVerified(Boolean resetTokenVerified) {
+        this.resetTokenVerified = resetTokenVerified;
     }
 
     public String getRole() {
