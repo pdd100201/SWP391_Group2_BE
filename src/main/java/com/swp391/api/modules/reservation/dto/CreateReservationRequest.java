@@ -2,6 +2,7 @@ package com.swp391.api.modules.reservation.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.time.LocalDate;
@@ -27,6 +28,7 @@ public class CreateReservationRequest {
 
     @NotNull(message = "Number of guests is required")
     @Min(value = 1, message = "Number of guests must be at least 1")
+    @Max(value = 30, message = "Number of guests must not exceed 30")
     private Integer numberOfGuests;
 
     private String note;

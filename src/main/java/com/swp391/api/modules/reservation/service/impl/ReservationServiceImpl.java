@@ -8,6 +8,7 @@ import com.swp391.api.modules.reservation.repository.ReservationRepository;
 import com.swp391.api.modules.reservation.service.ReservationService;
 import com.swp391.api.modules.user.entity.Customer;
 import com.swp391.api.modules.user.repository.CustomerRepository;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -40,6 +41,15 @@ public class ReservationServiceImpl implements ReservationService {
         String currentEmail = getCurrentEmailRequired();
         Customer customer = customerRepository.findByCustomersEmail(currentEmail)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Only customers can create reservations"));
+
+        LocalDateTime reservationDateTime = LocalDateTime.of(request.getReservationDate(), request.getReservationTime());
+        if (reservationDateTime.isBefore(LocalDateTime.now())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservation date and time must be in the future");
+        }
+
+        if (request.getNumberOfGuests() > 30) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Number of guests must not exceed 30");
+        }
 
         Reservation reservation = new Reservation();
         reservation.setFullName(request.getFullName());
