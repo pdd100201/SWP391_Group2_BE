@@ -6,6 +6,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "users")
@@ -36,6 +37,15 @@ public class User extends BaseAuditableEntity {
 
     @Column(name = "is_active")
     private Boolean isActive = true;
+
+    @Column(name = "reset_token")
+    private String resetToken;
+
+    @Column(name = "reset_token_expiry")
+    private LocalDateTime resetTokenExpiry;
+
+    @Column(name = "reset_token_verified")
+    private Boolean resetTokenVerified = Boolean.FALSE;
 
     public Long getUserId() {
         return userId;
@@ -99,5 +109,29 @@ public class User extends BaseAuditableEntity {
 
     public void setIsActive(Boolean isActive) {
         this.isActive = isActive;
+    }
+
+    public String getResetToken() {
+        return resetToken;
+    }
+
+    public void setResetToken(String resetToken) {
+        this.resetToken = resetToken;
+    }
+
+    public LocalDateTime getResetTokenExpiry() {
+        return resetTokenExpiry;
+    }
+
+    public void setResetTokenExpiry(LocalDateTime resetTokenExpiry) {
+        this.resetTokenExpiry = resetTokenExpiry;
+    }
+
+    public Boolean getResetTokenVerified() {
+        return resetTokenVerified;
+    }
+
+    public void setResetTokenVerified(Boolean resetTokenVerified) {
+        this.resetTokenVerified = resetTokenVerified;
     }
 }
