@@ -24,4 +24,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findStaff(@Param("keyword") String keyword,
                          @Param("role") String role,
                          @Param("isActive") Boolean isActive);
+
+    Optional<User> findByResetToken(String resetToken);
 }

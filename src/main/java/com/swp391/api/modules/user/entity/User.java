@@ -32,12 +32,6 @@ public class User extends BaseAuditableEntity {
     @Column(name = "avatar_url")
     private String avatarUrl;
 
-    @Column(name = "role", nullable = false)
-    private String role;
-
-    @Column(name = "is_active")
-    private Boolean isActive = true;
-
     @Column(name = "reset_token")
     private String resetToken;
 
@@ -46,6 +40,15 @@ public class User extends BaseAuditableEntity {
 
     @Column(name = "reset_token_verified")
     private Boolean resetTokenVerified = Boolean.FALSE;
+
+    @Column(name = "role", nullable = false)
+    private String role;
+
+    @Column(name = "status")
+    private String status;
+
+    @Column(name = "is_active")
+    private Boolean isActive = true;
 
     public Long getUserId() {
         return userId;
@@ -95,22 +98,6 @@ public class User extends BaseAuditableEntity {
         this.avatarUrl = avatarUrl;
     }
 
-    public String getRole() {
-        return role;
-    }
-
-    public void setRole(String role) {
-        this.role = role;
-    }
-
-    public Boolean getIsActive() {
-        return isActive;
-    }
-
-    public void setIsActive(Boolean isActive) {
-        this.isActive = isActive;
-    }
-
     public String getResetToken() {
         return resetToken;
     }
@@ -133,5 +120,29 @@ public class User extends BaseAuditableEntity {
 
     public void setResetTokenVerified(Boolean resetTokenVerified) {
         this.resetTokenVerified = resetTokenVerified;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public Boolean getIsActive() {
+        return isActive;
+    }
+
+    public void setIsActive(Boolean isActive) {
+        this.isActive = isActive;
     }
 }

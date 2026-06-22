@@ -21,4 +21,8 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
            "ORDER BY c.createdAt DESC")
     List<Customer> findAllCustomers(@Param("keyword") String keyword,
                                     @Param("isActive") Boolean isActive);
+
+    Optional<Customer> findByResetToken(String resetToken);
+
+    Optional<Customer> findByOtpCode(String otpCode);
 }

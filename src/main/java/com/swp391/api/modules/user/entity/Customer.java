@@ -39,6 +39,9 @@ public class Customer extends BaseAuditableEntity {
     @Column(name = "reset_token_expiry")
     private LocalDateTime resetTokenExpiry;
 
+    @Column(name = "reset_token_verified")
+    private Boolean resetTokenVerified = Boolean.FALSE;
+
     @Column(name = "otp_code")
     private String otpCode;
 
@@ -110,6 +113,14 @@ public class Customer extends BaseAuditableEntity {
 
     public void setResetTokenExpiry(LocalDateTime resetTokenExpiry) {
         this.resetTokenExpiry = resetTokenExpiry;
+    }
+
+    public Boolean getResetTokenVerified() {
+        return resetTokenVerified;
+    }
+
+    public void setResetTokenVerified(Boolean resetTokenVerified) {
+        this.resetTokenVerified = resetTokenVerified;
     }
 
     public String getOtpCode() {

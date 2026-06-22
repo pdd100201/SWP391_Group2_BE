@@ -262,6 +262,7 @@ public class AuthServiceImpl implements AuthService {
         String otp = generateOtp();
         customer.setResetToken(otp);
         customer.setResetTokenExpiry(LocalDateTime.now().plusMinutes(5));
+        customer.setResetTokenVerified(Boolean.FALSE);
         customerRepository.save(customer);
         sendOtpEmail(email, otp);
         return "OTP has been sent to your email.";
@@ -292,6 +293,7 @@ public class AuthServiceImpl implements AuthService {
         if (!customer.getResetToken().equals(otp)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid OTP");
         }
+        customer.setResetTokenVerified(Boolean.TRUE);
         customerRepository.save(customer);
         return "OTP verified successfully.";
     }
@@ -309,6 +311,9 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private String resetCustomerPasswordAfterOtp(Customer customer, String newPassword) {
+        if (!Boolean.TRUE.equals(customer.getResetTokenVerified())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP not verified");
+        }
         if (customer.getResetToken() == null || customer.getResetTokenExpiry() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP not verified");
         }
@@ -318,6 +323,7 @@ public class AuthServiceImpl implements AuthService {
         customer.setPassword(passwordEncoder.encode(newPassword));
         customer.setResetToken(null);
         customer.setResetTokenExpiry(null);
+        customer.setResetTokenVerified(Boolean.FALSE);
         customerRepository.save(customer);
         return "Password reset successfully.";
     }

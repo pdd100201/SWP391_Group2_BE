@@ -55,12 +55,18 @@ public class JwtUtils {
      * Validates signature and expiry. Returns true if valid.
      */
     public boolean validateToken(String token) {
+        return validateJwtToken(token);
+    }
+
+    // Alias used by JwtAuthenticationFilter
+    public boolean validateJwtToken(String authToken) {
         try {
-            parseClaims(token);
+            Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(authToken);
             return true;
-        } catch (JwtException | IllegalArgumentException e) {
-            return false;
+        } catch (Exception e) {
+            System.err.println("Token không hợp lệ hoặc đã hết hạn: " + e.getMessage());
         }
+        return false;
     }
 
     /**
@@ -70,11 +76,31 @@ public class JwtUtils {
         return parseClaims(token).getSubject();
     }
 
+    // Alias used by JwtAuthenticationFilter
+    public String getEmailFromToken(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getSubject();
+    }
+
     /**
      * Extracts the role claim from the token.
      */
     public String extractRole(String token) {
         return parseClaims(token).get("role", String.class);
+    }
+
+    // Alias used by JwtAuthenticationFilter
+    public String getRoleFromToken(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .get("role", String.class);
     }
 
     // -------------------------------------------------------------------------
