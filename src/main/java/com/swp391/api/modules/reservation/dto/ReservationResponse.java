@@ -1,6 +1,7 @@
 package com.swp391.api.modules.reservation.dto;
 
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
+import com.swp391.api.modules.order.entity.OrderStatus;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -17,6 +18,9 @@ public class ReservationResponse {
     private Integer numberOfGuests;
     private String note;
     private ReservationStatus status;
+    private Long orderId;
+    private String orderCode;
+    private OrderStatus orderStatus;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -128,6 +132,13 @@ public class ReservationResponse {
     public void setStatus(ReservationStatus status) {
         this.status = status;
     }
+
+    public Long getOrderId() { return orderId; }
+    public void setOrderId(Long orderId) { this.orderId = orderId; }
+    public String getOrderCode() { return orderCode; }
+    public void setOrderCode(String orderCode) { this.orderCode = orderCode; }
+    public OrderStatus getOrderStatus() { return orderStatus; }
+    public void setOrderStatus(OrderStatus orderStatus) { this.orderStatus = orderStatus; }
 
     public LocalDateTime getCreatedAt() {
         return createdAt;

@@ -1,6 +1,7 @@
 package com.swp391.api.config;
 
 import com.swp391.api.common.security.JwtAuthenticationFilter;
+import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -35,9 +36,15 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/").permitAll()
+                        .requestMatchers("/api/auth/**", "/api/order-access/**", "/").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/inventory/**")
+                        .hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
                         .requestMatchers("/api/inventory/**").hasAnyRole("ADMIN", "MANAGER")
+                        .requestMatchers(HttpMethod.GET, "/api/menu/**", "/api/menu-categories/**")
+                        .hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
                         .requestMatchers("/api/menu/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
+                        .requestMatchers("/api/menu-categories/**").hasAnyRole("ADMIN", "MANAGER")
+                        .requestMatchers("/api/orders/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
                         .anyRequest().authenticated()
                 )
                 // kiểm tra Token
