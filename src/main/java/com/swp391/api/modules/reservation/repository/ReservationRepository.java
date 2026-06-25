@@ -4,6 +4,7 @@ import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional; // 1. ĐÃ THÊM: Import này để dùng được Optional
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -28,4 +29,9 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     List<Reservation> findCheckInCandidates(@Param("date") LocalDate date,
                                             @Param("search") String search,
                                             @Param("statuses") List<ReservationStatus> statuses);
+
+    /**
+     * 🔥 2. ĐÃ THÊM: Hàm tìm kiếm khách đang ngồi theo ID bàn và trạng thái ARRIVED
+     */
+    Optional<Reservation> findByTableIdAndStatus(Long tableId, ReservationStatus status);
 }

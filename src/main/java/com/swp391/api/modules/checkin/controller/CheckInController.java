@@ -41,4 +41,13 @@ public class CheckInController {
     public ResponseEntity<ReservationResponse> processCheckIn(@Valid @RequestBody CheckInRequest request) {
         return ResponseEntity.ok(checkInService.processCheckInTransaction(request));
     }
+    /**
+     * Lấy thông tin khách hàng thực tế đang ngồi tại bàn OCCUPIED
+     * GET /api/check-in/table/{tableId}/active-guest
+     */
+    @GetMapping("/table/{tableId}/active-guest")
+    public ResponseEntity<com.swp391.api.modules.checkin.dto.ActiveGuestResponse> getActiveGuestByTable(
+            @PathVariable Long tableId) {
+        return ResponseEntity.ok(checkInService.getActiveGuestByTable(tableId));
+    }
 }
