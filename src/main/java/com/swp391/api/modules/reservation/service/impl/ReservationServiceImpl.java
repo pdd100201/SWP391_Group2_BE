@@ -122,6 +122,7 @@ public class ReservationServiceImpl implements ReservationService {
         return new ReservationResponse(
                 reservation.getReservationId(),
                 reservation.getCustomerId(),
+                reservation.getTableId(),
                 reservation.getFullName(),
                 reservation.getPhone(),
                 reservation.getEmail(),

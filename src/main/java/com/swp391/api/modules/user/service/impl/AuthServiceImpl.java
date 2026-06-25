@@ -4,6 +4,7 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Random;
+import java.util.UUID;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload;
@@ -31,11 +32,13 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import com.swp391.api.modules.user.dto.VerifyOtpRequest;
 
 @Service
 @Transactional
 public class AuthServiceImpl implements AuthService {
 
+    // ID client của Google dùng để xác thực token đăng nhập bằng Google.
     private static final String GOOGLE_CLIENT_ID = "150115632028-8eqn9u4mse09dm8vj2dcquev3gp6vruq.apps.googleusercontent.com";
 
     private final CustomerRepository customerRepository;
@@ -59,6 +62,8 @@ public class AuthServiceImpl implements AuthService {
         this.jwtUtils = jwtUtils;
         this.javaMailSender = javaMailSender;
         this.frontendBaseUrl = frontendBaseUrl;
+
+        // Cấu hình bộ xác thực token Google với client ID mong đợi.
         this.googleIdTokenVerifier = new GoogleIdTokenVerifier.Builder(new NetHttpTransport(), GsonFactory.getDefaultInstance())
                 .setAudience(java.util.List.of(GOOGLE_CLIENT_ID))
                 .build();
@@ -66,11 +71,13 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse registerCustomer(CustomerRegisterRequest request) {
+        // Kiểm tra trùng email trước khi tạo tài khoản customer mới.
         customerRepository.findByCustomersEmail(request.getCustomersEmail())
                 .ifPresent(customer -> {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Customer email already exists");
                 });
 
+        // Chuyển dữ liệu đăng ký sang entity Customer.
         Customer customer = new Customer();
         customer.setFullName(request.getFullName());
         customer.setCustomersEmail(request.getCustomersEmail());
@@ -86,6 +93,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(LoginRequest request) {
+        // Ưu tiên kiểm tra tài khoản customer trước.
         Customer customer = customerRepository.findByCustomersEmail(request.getEmail()).orElse(null);
         if (customer != null) {
             if (!passwordEncoder.matches(request.getPassword(), customer.getPassword())) {
@@ -237,7 +245,6 @@ public class AuthServiceImpl implements AuthService {
         String otp = generateOtp();
         customer.setResetToken(otp);
         customer.setResetTokenExpiry(LocalDateTime.now().plusMinutes(5));
-        customer.setResetTokenVerified(Boolean.FALSE);
         customerRepository.save(customer);
         sendOtpEmail(email, otp);
         return "OTP has been sent to your email.";
@@ -268,7 +275,6 @@ public class AuthServiceImpl implements AuthService {
         if (!customer.getResetToken().equals(otp)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid OTP");
         }
-        customer.setResetTokenVerified(Boolean.TRUE);
         customerRepository.save(customer);
         return "OTP verified successfully.";
     }
@@ -286,9 +292,6 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private String resetCustomerPasswordAfterOtp(Customer customer, String newPassword) {
-        if (!Boolean.TRUE.equals(customer.getResetTokenVerified())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP not verified");
-        }
         if (customer.getResetToken() == null || customer.getResetTokenExpiry() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OTP not verified");
         }
@@ -298,7 +301,6 @@ public class AuthServiceImpl implements AuthService {
         customer.setPassword(passwordEncoder.encode(newPassword));
         customer.setResetToken(null);
         customer.setResetTokenExpiry(null);
-        customer.setResetTokenVerified(Boolean.FALSE);
         customerRepository.save(customer);
         return "Password reset successfully.";
     }

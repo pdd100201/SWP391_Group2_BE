@@ -9,6 +9,7 @@ public class ReservationResponse {
 
     private Long reservationId;
     private Long customerId;
+    private Long tableId;
     private String fullName;
     private String phone;
     private String email;
@@ -25,6 +26,7 @@ public class ReservationResponse {
 
     public ReservationResponse(Long reservationId,
                                Long customerId,
+                               Long tableId,
                                String fullName,
                                String phone,
                                String email,
@@ -37,6 +39,7 @@ public class ReservationResponse {
                                LocalDateTime updatedAt) {
         this.reservationId = reservationId;
         this.customerId = customerId;
+        this.tableId = tableId;
         this.fullName = fullName;
         this.phone = phone;
         this.email = email;
@@ -63,6 +66,14 @@ public class ReservationResponse {
 
     public void setCustomerId(Long customerId) {
         this.customerId = customerId;
+    }
+
+    public Long getTableId() {
+        return tableId;
+    }
+
+    public void setTableId(Long tableId) {
+        this.tableId = tableId;
     }
 
     public String getFullName() {

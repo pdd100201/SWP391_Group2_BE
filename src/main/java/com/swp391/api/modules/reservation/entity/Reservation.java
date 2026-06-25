@@ -24,6 +24,9 @@ public class Reservation extends BaseAuditableEntity {
     @Column(name = "customer_id")
     private Long customerId;
 
+    @Column(name = "table_id")
+    private Long tableId;
+
     @Column(name = "full_name", nullable = false)
     private String fullName;
 
@@ -63,6 +66,14 @@ public class Reservation extends BaseAuditableEntity {
 
     public void setCustomerId(Long customerId) {
         this.customerId = customerId;
+    }
+
+    public Long getTableId() {
+        return tableId;
+    }
+
+    public void setTableId(Long tableId) {
+        this.tableId = tableId;
     }
 
     public String getFullName() {

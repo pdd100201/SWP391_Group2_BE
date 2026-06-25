@@ -1,6 +1,7 @@
 package com.swp391.api.modules.user.service.impl;
 
 import com.swp391.api.modules.user.dto.ChangePasswordRequest;
+import com.swp391.api.modules.user.dto.CustomerProfileResponse;
 import com.swp391.api.modules.user.dto.UpdateProfileRequest;
 import com.swp391.api.modules.user.dto.UserProfileResponse;
 import com.swp391.api.modules.user.entity.Customer;
@@ -8,6 +9,7 @@ import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.repository.CustomerRepository;
 import com.swp391.api.modules.user.repository.UserRepository;
 import com.swp391.api.modules.user.service.UserService;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,9 +27,7 @@ public class UserServiceImpl implements UserService {
     private final CustomerRepository customerRepository;
     private final PasswordEncoder passwordEncoder;
 
-    public UserServiceImpl(UserRepository userRepository,
-                           CustomerRepository customerRepository,
-                           PasswordEncoder passwordEncoder) {
+    public UserServiceImpl(UserRepository userRepository, CustomerRepository customerRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.customerRepository = customerRepository;
         this.passwordEncoder = passwordEncoder;
@@ -35,148 +35,126 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserProfileResponse getCurrentProfile() {
-        CurrentAccount account = getCurrentAccount();
-        return account.toProfileResponse();
+        // Lấy tài khoản hiện tại đang đăng nhập rồi map sang response phù hợp.
+        Object account = getCurrentAccount();
+        if (account instanceof User user) {
+            return mapUserToProfileResponse(user);
+        }
+        Customer customer = (Customer) account;
+        return mapCustomerToProfileResponse(customer);
     }
 
     @Override
     public UserProfileResponse updateProfile(UpdateProfileRequest request) {
-        CurrentAccount account = getCurrentAccount();
-        account.setFullName(request.getFullName());
-        account.setPhone(request.getPhoneNumber());
-        return saveAndMap(account);
+        // Cập nhật thông tin cá nhân cho đúng loại tài khoản đang đăng nhập.
+        Object account = getCurrentAccount();
+        if (account instanceof User user) {
+            user.setFullName(request.getFullName());
+            user.setPhone(request.getPhoneNumber());
+            return mapUserToProfileResponse(userRepository.save(user));
+        }
+        Customer customer = (Customer) account;
+        customer.setFullName(request.getFullName());
+        customer.setPhone(request.getPhoneNumber());
+        Customer saved = customerRepository.save(customer);
+        return mapCustomerToProfileResponse(saved);
     }
 
     @Override
     public String changePassword(ChangePasswordRequest request) {
-        CurrentAccount account = getCurrentAccount();
-        String currentPassword = account.getPassword();
-
-        if (currentPassword == null || currentPassword.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is not set");
+        // Đổi mật khẩu cho user hoặc customer hiện tại.
+        Object account = getCurrentAccount();
+        if (account instanceof User user) {
+            return changePasswordForUser(user, request);
         }
 
-        if (!passwordEncoder.matches(request.getOldPassword(), currentPassword)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Old password is incorrect");
-        }
-
-        account.setPassword(passwordEncoder.encode(request.getNewPassword()));
-        save(account);
-        return "Password changed successfully";
+        Customer customer = (Customer) account;
+        return changePasswordForCustomer(customer, request);
     }
 
     @Override
     public UserProfileResponse updateAvatar(MultipartFile file) {
-        CurrentAccount account = getCurrentAccount();
-        String mockAvatarUrl = "https://mock-storage.local/avatars/" + (file != null ? file.getOriginalFilename() : "default-avatar.png");
-        account.setAvatarUrl(mockAvatarUrl);
-        return saveAndMap(account);
+        // Tạo đường dẫn avatar tạm và lưu lại cho tài khoản hiện tại.
+        Object account = getCurrentAccount();
+        String avatarUrl = "https://mock-storage.local/avatars/" + (file != null ? file.getOriginalFilename() : "default-avatar.png");
+
+        if (account instanceof User user) {
+            user.setAvatarUrl(avatarUrl);
+            return mapUserToProfileResponse(userRepository.save(user));
+        }
+
+        Customer customer = (Customer) account;
+        customer.setAvatarUrl(avatarUrl);
+        return mapCustomerToProfileResponse(customerRepository.save(customer));
     }
 
-    private CurrentAccount getCurrentAccount() {
+    private Object getCurrentAccount() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || authentication.getName() == null) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
         }
 
         String email = authentication.getName();
-        User user = userRepository.findByUserEmail(email).orElse(null);
-        if (user != null) {
-            return CurrentAccount.fromUser(user);
+        Optional<User> userOpt = userRepository.findByUserEmail(email);
+        if (userOpt.isPresent()) {
+            return userOpt.get();
         }
 
-        Customer customer = customerRepository.findByCustomersEmail(email).orElse(null);
-        if (customer != null) {
-            return CurrentAccount.fromCustomer(customer);
-        }
-
-        throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found");
+        return customerRepository.findByCustomersEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Account not found"));
     }
 
-    private UserProfileResponse saveAndMap(CurrentAccount account) {
-        return save(account).toProfileResponse();
+    private String changePasswordForUser(User user, ChangePasswordRequest request) {
+        // Kiểm tra mật khẩu cũ và mã hóa mật khẩu mới trước khi lưu.
+        if (user.getPassword() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is not set");
+        }
+        
+
+    if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Old password is incorrect");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
+        return "Password changed successfully";
+    }
+        private String changePasswordForCustomer(Customer customer, ChangePasswordRequest request) {
+        // Kiểm tra mật khẩu cũ và mã hóa mật khẩu mới cho customer.
+        if (customer.getPassword() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Current password is not set");
+        }
+
+        if (!passwordEncoder.matches(request.getOldPassword(), customer.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Old password is incorrect");
+        }
+
+        customer.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        customerRepository.save(customer);
+        return "Password changed successfully";
     }
 
-    private CurrentAccount save(CurrentAccount account) {
-        if (account.user != null) {
-            account.user = userRepository.save(account.user);
-            return account;
-        }
-        account.customer = customerRepository.save(account.customer);
-        return account;
+        private UserProfileResponse mapUserToProfileResponse(User user) {
+        // Chuyển entity User sang response trả về cho FE.
+        return new UserProfileResponse(
+                user.getUserId(),
+                user.getUserEmail(),
+                user.getUserEmail(),
+                user.getFullName(),
+                user.getPhone(),
+                user.getAvatarUrl()
+        );
     }
 
-    private static class CurrentAccount {
-        private User user;
-        private Customer customer;
-
-        private static CurrentAccount fromUser(User user) {
-            CurrentAccount account = new CurrentAccount();
-            account.user = user;
-            return account;
-        }
-
-        private static CurrentAccount fromCustomer(Customer customer) {
-            CurrentAccount account = new CurrentAccount();
-            account.customer = customer;
-            return account;
-        }
-
-        private String getPassword() {
-            return user != null ? user.getPassword() : customer.getPassword();
-        }
-
-        private void setPassword(String password) {
-            if (user != null) {
-                user.setPassword(password);
-            } else {
-                customer.setPassword(password);
-            }
-        }
-
-        private void setFullName(String fullName) {
-            if (user != null) {
-                user.setFullName(fullName);
-            } else {
-                customer.setFullName(fullName);
-            }
-        }
-
-        private void setPhone(String phone) {
-            if (user != null) {
-                user.setPhone(phone);
-            } else {
-                customer.setPhone(phone);
-            }
-        }
-
-        private void setAvatarUrl(String avatarUrl) {
-            if (user != null) {
-                user.setAvatarUrl(avatarUrl);
-            } else {
-                customer.setAvatarUrl(avatarUrl);
-            }
-        }
-
-        private UserProfileResponse toProfileResponse() {
-            if (user != null) {
-                return new UserProfileResponse(
-                        user.getUserId(),
-                        user.getUserEmail(),
-                        user.getUserEmail(),
-                        user.getFullName(),
-                        user.getPhone(),
-                        user.getAvatarUrl()
-                );
-            }
-            return new UserProfileResponse(
-                    customer.getCustomerId(),
-                    customer.getCustomersEmail(),
-                    customer.getCustomersEmail(),
-                    customer.getFullName(),
-                    customer.getPhone(),
-                    customer.getAvatarUrl()
-            );
-        }
+        private UserProfileResponse mapCustomerToProfileResponse(Customer customer) {
+        // Chuyển entity Customer sang response trả về cho FE.
+        return new UserProfileResponse(
+                customer.getCustomerId(),
+                customer.getCustomersEmail(),
+                customer.getCustomersEmail(),
+                customer.getFullName(),
+                customer.getPhone(),
+                customer.getAvatarUrl()
+        );
     }
 }
