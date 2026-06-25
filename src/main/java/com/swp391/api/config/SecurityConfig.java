@@ -37,6 +37,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/api/order-access/**", "/").permitAll()
+                        .requestMatchers("/api/tables/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/inventory/**")
                         .hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
                         .requestMatchers("/api/inventory/**").hasAnyRole("ADMIN", "MANAGER")
@@ -45,6 +46,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/menu/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
                         .requestMatchers("/api/menu-categories/**").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/orders/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
+                        .requestMatchers("/api/check-in/**").hasAnyRole("ADMIN", "MANAGER", "RECEPTIONIST")
                         .anyRequest().authenticated()
                 )
                 // kiểm tra Token
