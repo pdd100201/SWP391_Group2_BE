@@ -49,4 +49,11 @@ public class ReservationController {
     public ResponseEntity<ReservationResponse> confirmReservation(@PathVariable("id") Long reservationId) {
         return ResponseEntity.ok(reservationService.confirmReservation(reservationId));
     }
+
+    @PatchMapping("/{id}/assign-tables")
+    public ResponseEntity<ReservationResponse> assignTables(
+            @PathVariable("id") Long reservationId,
+            @Valid @RequestBody com.swp391.api.modules.reservation.dto.AssignTablesRequest request) {
+        return ResponseEntity.ok(reservationService.assignTables(reservationId, request));
+    }
 }

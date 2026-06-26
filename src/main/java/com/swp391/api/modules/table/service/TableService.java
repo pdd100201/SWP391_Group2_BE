@@ -25,6 +25,13 @@ public interface TableService {
     List<TableResponse> getAllTables();
 
     /**
+     * Láº¥y danh sÃ¡ch bÃ n vá»›i tráº¡ng thÃ¡i Ä‘Æ°á»£c tÃ­nh táº¡i thá»i Ä‘iá»ƒm hiá»‡n táº¡i cho layout check-in.
+     *
+     * @return Danh sÃ¡ch táº¥t cáº£ bÃ n vá»›i status Ä‘á»™ng: OCCUPIED, RESERVED hoáº·c AVAILABLE
+     */
+    List<TableResponse> getTablesStatusNow();
+
+    /**
      * Lấy danh sách bàn đang hoạt động (isActive = true).
      *
      * @return Danh sách bàn đang hoạt động

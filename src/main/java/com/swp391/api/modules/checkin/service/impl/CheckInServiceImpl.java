@@ -114,26 +114,25 @@ public class CheckInServiceImpl implements CheckInService {
                 reservation.getUpdatedAt()
         );
     }
+
     @Override
     public com.swp391.api.modules.checkin.dto.ActiveGuestResponse getActiveGuestByTable(Long tableId) {
-        // 1. Tìm đơn đặt bàn (Reservation) có trạng thái ARRIVED ở bàn này
+        // 🚀 ĐỔI SANG HÀM MỚI TẠO Ở REPOSITORY ĐỂ TÌM QUA BẢNG TRUNG GIAN
         java.util.Optional<com.swp391.api.modules.reservation.entity.Reservation> reservationOpt = reservationRepository
-                .findByTableIdAndStatus(tableId, com.swp391.api.modules.reservation.entity.ReservationStatus.ARRIVED);
+                .findActiveReservationByTableId(tableId);
 
-        // 2. 🟢 NẾU KHÔNG TÌM THẤY (Do nhân viên tự chuyển trạng thái bằng tay chứ chưa Check-in), TRẢ VỀ NULL THAY VÌ BẮN LỖI 500
         if (reservationOpt.isEmpty()) {
             return null;
         }
 
         com.swp391.api.modules.reservation.entity.Reservation reservation = reservationOpt.get();
 
-        // 3. Đóng gói dữ liệu thật từ Database trả về cho Frontend
         return com.swp391.api.modules.checkin.dto.ActiveGuestResponse.builder()
                 .fullName(reservation.getFullName())
                 .phone(reservation.getPhone())
                 .numberOfGuests(reservation.getNumberOfGuests())
-                .checkInTime(reservation.getReservationTime().toString()) // Giờ đặt/vào bàn
-                .orderId("ORD-" + tableId) // Sau này có bảng Order (Hóa đơn) thì bạn query ID thật thay vào đây nhé
+                .checkInTime(reservation.getReservationTime().toString())
+                .orderId("ORD-" + tableId)
                 .build();
     }
 }

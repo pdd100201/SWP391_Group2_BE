@@ -2,6 +2,8 @@ package com.swp391.api.modules.table.repository;
 
 import com.swp391.api.modules.table.entity.RestaurantTable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -13,6 +15,21 @@ import java.util.Optional;
  * Spring Data JPA tự động sinh ra câu SQL dựa theo tên phương thức (derived query).</p>
  */
 public interface TableRepository extends JpaRepository<RestaurantTable, Long> {
+
+    @Query("""
+            SELECT COUNT(t)
+            FROM RestaurantTable t
+            WHERE t.capacity >= :requestedGuests
+              AND t.status = com.swp391.api.modules.table.entity.RestaurantTable.TableStatus.AVAILABLE
+              AND t.isActive = true
+            """)
+    Long countAvailableTablesThatFitGuests(@Param("requestedGuests") Integer requestedGuests);
+
+    @Query("""
+            SELECT COALESCE(SUM(t.capacity), 0)
+            FROM RestaurantTable t
+            """)
+    Long sumTotalRestaurantSeats();
 
     /**
      * Tìm bàn theo số bàn chính xác, không phân biệt chữ hoa/thường.

@@ -37,4 +37,11 @@ public class GlobalExceptionHandler {
         body.put("message", ex.getReason() == null ? "Request failed" : ex.getReason());
         return ResponseEntity.status(ex.getStatusCode()).body(body);
     }
+
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<Map<String, String>> handleBusinessException(BusinessException ex) {
+        Map<String, String> body = new HashMap<>();
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
 }

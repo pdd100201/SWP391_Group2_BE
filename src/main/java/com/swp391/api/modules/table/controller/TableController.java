@@ -42,6 +42,12 @@ public class TableController {
         return ResponseEntity.ok(tableService.getActiveTables());
     }
 
+    @GetMapping("/status-now")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
+    public ResponseEntity<List<TableResponse>> getTablesStatusNow() {
+        return ResponseEntity.ok(tableService.getTablesStatusNow());
+    }
+
     /**
      * Lấy thông tin chi tiết một bàn theo ID.
      */

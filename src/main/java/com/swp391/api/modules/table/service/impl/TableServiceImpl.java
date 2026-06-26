@@ -1,5 +1,7 @@
 package com.swp391.api.modules.table.service.impl;
 
+import com.swp391.api.modules.reservation.entity.Reservation;
+import com.swp391.api.modules.reservation.repository.ReservationRepository;
 import com.swp391.api.modules.table.dto.TableRequest;
 import com.swp391.api.modules.table.dto.TableResponse;
 import com.swp391.api.modules.table.dto.UpdateTableStatusRequest;
@@ -13,6 +15,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -29,23 +33,33 @@ import java.util.stream.Collectors;
 @Transactional
 public class TableServiceImpl implements TableService {
 
+    private static final int UPCOMING_RESERVATION_WARNING_MINUTES = 45;
+
     private final TableRepository tableRepository;
     private final TableTypeRepository tableTypeRepository;
+    private final ReservationRepository reservationRepository;
 
     /**
      * Constructor injection cho {@link TableRepository}.
      * 
      * @param tableRepository Repository quản lý bàn
      */
-    public TableServiceImpl(TableRepository tableRepository, TableTypeRepository tableTypeRepository) {
+    public TableServiceImpl(TableRepository tableRepository,
+                            TableTypeRepository tableTypeRepository,
+                            ReservationRepository reservationRepository) {
         this.tableRepository = tableRepository;
         this.tableTypeRepository = tableTypeRepository;
+        this.reservationRepository = reservationRepository;
     }
 
     /**
      * Chuyển đổi entity {@link RestaurantTable} sang DTO {@link TableResponse}.
      */
     private TableResponse toResponse(RestaurantTable table) {
+        return toResponse(table, table.getStatus());
+    }
+
+    private TableResponse toResponse(RestaurantTable table, RestaurantTable.TableStatus status) {
         TableType tableType = table.getTableType();
         return new TableResponse(
             table.getId(),
@@ -54,7 +68,7 @@ public class TableServiceImpl implements TableService {
             tableType != null ? tableType.getId() : null,
             tableType != null ? tableType.getTypeName() : null,
             table.getCapacity(),
-            table.getStatus().name(),
+            status.name(),
             table.getQrCode(),
             table.getIsActive(),
             table.getCreatedAt(),
@@ -90,6 +104,51 @@ public class TableServiceImpl implements TableService {
             .stream()
             .map(this::toResponse)
             .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TableResponse> getTablesStatusNow() {
+        LocalDate today = LocalDate.now();
+        LocalTime now = LocalTime.now();
+        LocalTime warningCutoff = now.plusMinutes(UPCOMING_RESERVATION_WARNING_MINUTES);
+        if (warningCutoff.isBefore(now)) {
+            warningCutoff = LocalTime.MAX;
+        }
+        List<Reservation> upcomingReservations = reservationRepository.findUpcomingConfirmedReservations(
+                today,
+                now,
+                warningCutoff
+        );
+
+        return tableRepository.findAll()
+            .stream()
+            .map(table -> toResponse(table, calculateDynamicStatus(table, upcomingReservations)))
+            .collect(Collectors.toList());
+    }
+
+    private RestaurantTable.TableStatus calculateDynamicStatus(RestaurantTable table,
+                                                               List<Reservation> upcomingReservations) {
+        if (table.getStatus() == RestaurantTable.TableStatus.OCCUPIED) {
+            return RestaurantTable.TableStatus.OCCUPIED;
+        }
+
+        boolean hasUpcomingReservation = upcomingReservations.stream()
+            .anyMatch(reservation -> reservesTable(reservation, table));
+
+        return hasUpcomingReservation
+            ? RestaurantTable.TableStatus.RESERVED
+            : RestaurantTable.TableStatus.AVAILABLE;
+    }
+
+    private boolean reservesTable(Reservation reservation, RestaurantTable table) {
+        if (reservation.getTableId() != null) {
+            return reservation.getTableId().equals(table.getId());
+        }
+
+        Integer guests = reservation.getNumberOfGuests();
+        Integer capacity = table.getCapacity();
+        return guests != null && capacity != null && guests <= capacity;
     }
 
     @Override
