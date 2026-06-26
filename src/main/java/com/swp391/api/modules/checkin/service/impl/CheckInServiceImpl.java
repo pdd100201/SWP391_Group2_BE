@@ -1,7 +1,10 @@
 package com.swp391.api.modules.checkin.service.impl;
 
+import com.swp391.api.modules.checkin.dto.ActiveGuestResponse;
 import com.swp391.api.modules.checkin.dto.CheckInRequest;
 import com.swp391.api.modules.checkin.service.CheckInService;
+import com.swp391.api.modules.order.entity.RestaurantOrder;
+import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.reservation.dto.ReservationResponse;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
@@ -10,14 +13,12 @@ import com.swp391.api.modules.table.entity.RestaurantTable;
 import com.swp391.api.modules.table.repository.TableRepository;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-/**
- * Coordinates reservation arrival and table occupation updates.
- */
 @Service
 public class CheckInServiceImpl implements CheckInService {
 
@@ -28,22 +29,16 @@ public class CheckInServiceImpl implements CheckInService {
 
     private final ReservationRepository reservationRepository;
     private final TableRepository tableRepository;
+    private final OrderRepository orderRepository;
 
-    /**
-     * Constructor injection for repositories owned by the reservation and table modules.
-     *
-     * @param reservationRepository repository for reservation records
-     * @param tableRepository repository for restaurant table records
-     */
     public CheckInServiceImpl(ReservationRepository reservationRepository,
-                              TableRepository tableRepository) {
+                              TableRepository tableRepository,
+                              OrderRepository orderRepository) {
         this.reservationRepository = reservationRepository;
         this.tableRepository = tableRepository;
+        this.orderRepository = orderRepository;
     }
 
-    /**
-     * Returns all pending or confirmed reservations for one date, optionally filtered by guest keyword.
-     */
     @Override
     @Transactional(readOnly = true)
     public List<ReservationResponse> getCheckInReservations(LocalDate date, String search) {
@@ -57,13 +52,6 @@ public class CheckInServiceImpl implements CheckInService {
                 .toList();
     }
 
-    /**
-     * Validates and executes the check-in flow atomically.
-     *
-     * <p>The reservation must be {@code PENDING} or {@code CONFIRMED}; the target table must be
-     * active and {@code AVAILABLE}. On success the reservation becomes {@code ARRIVED}, the
-     * reservation is linked to {@code table_id}, and the table becomes {@code OCCUPIED}.</p>
-     */
     @Override
     @Transactional
     public ReservationResponse processCheckInTransaction(CheckInRequest request) {
@@ -97,6 +85,35 @@ public class CheckInServiceImpl implements CheckInService {
         return toResponse(savedReservation);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public ActiveGuestResponse getActiveGuestByTable(Long tableId) {
+        Optional<Reservation> reservationOpt =
+                reservationRepository.findByTableIdAndStatus(tableId, ReservationStatus.ARRIVED);
+
+        if (reservationOpt.isEmpty()) {
+            return null;
+        }
+
+        Reservation reservation = reservationOpt.get();
+        Optional<RestaurantOrder> orderOpt =
+                orderRepository.findByReservationReservationId(reservation.getReservationId());
+
+        ActiveGuestResponse.ActiveGuestResponseBuilder builder = ActiveGuestResponse.builder()
+                .reservationId(reservation.getReservationId())
+                .fullName(reservation.getFullName())
+                .phone(reservation.getPhone())
+                .numberOfGuests(reservation.getNumberOfGuests())
+                .checkInTime(reservation.getReservationTime().toString());
+
+        orderOpt.ifPresent(order -> builder
+                .orderId(order.getId())
+                .orderCode(order.getOrderCode())
+                .orderPath("/dashboard/orders-service"));
+
+        return builder.build();
+    }
+
     private ReservationResponse toResponse(Reservation reservation) {
         return new ReservationResponse(
                 reservation.getReservationId(),
@@ -113,27 +130,5 @@ public class CheckInServiceImpl implements CheckInService {
                 reservation.getCreatedAt(),
                 reservation.getUpdatedAt()
         );
-    }
-    @Override
-    public com.swp391.api.modules.checkin.dto.ActiveGuestResponse getActiveGuestByTable(Long tableId) {
-        // 1. Tìm đơn đặt bàn (Reservation) có trạng thái ARRIVED ở bàn này
-        java.util.Optional<com.swp391.api.modules.reservation.entity.Reservation> reservationOpt = reservationRepository
-                .findByTableIdAndStatus(tableId, com.swp391.api.modules.reservation.entity.ReservationStatus.ARRIVED);
-
-        // 2. 🟢 NẾU KHÔNG TÌM THẤY (Do nhân viên tự chuyển trạng thái bằng tay chứ chưa Check-in), TRẢ VỀ NULL THAY VÌ BẮN LỖI 500
-        if (reservationOpt.isEmpty()) {
-            return null;
-        }
-
-        com.swp391.api.modules.reservation.entity.Reservation reservation = reservationOpt.get();
-
-        // 3. Đóng gói dữ liệu thật từ Database trả về cho Frontend
-        return com.swp391.api.modules.checkin.dto.ActiveGuestResponse.builder()
-                .fullName(reservation.getFullName())
-                .phone(reservation.getPhone())
-                .numberOfGuests(reservation.getNumberOfGuests())
-                .checkInTime(reservation.getReservationTime().toString()) // Giờ đặt/vào bàn
-                .orderId("ORD-" + tableId) // Sau này có bảng Order (Hóa đơn) thì bạn query ID thật thay vào đây nhé
-                .build();
     }
 }

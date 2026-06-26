@@ -21,6 +21,8 @@ import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import com.swp391.api.modules.reservation.repository.ReservationRepository;
+import com.swp391.api.modules.table.entity.RestaurantTable;
+import com.swp391.api.modules.table.repository.TableRepository;
 import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.repository.UserRepository;
 import java.math.BigDecimal;
@@ -49,6 +51,7 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final ReservationRepository reservationRepository;
+    private final TableRepository tableRepository;
     private final MenuItemRepository menuItemRepository;
     private final InventoryRepository inventoryRepository;
     private final UserRepository userRepository;
@@ -57,12 +60,14 @@ public class OrderService {
     public OrderService(
             OrderRepository orderRepository,
             ReservationRepository reservationRepository,
+            TableRepository tableRepository,
             MenuItemRepository menuItemRepository,
             InventoryRepository inventoryRepository,
             UserRepository userRepository,
             MenuService menuService) {
         this.orderRepository = orderRepository;
         this.reservationRepository = reservationRepository;
+        this.tableRepository = tableRepository;
         this.menuItemRepository = menuItemRepository;
         this.inventoryRepository = inventoryRepository;
         this.userRepository = userRepository;
@@ -73,11 +78,22 @@ public class OrderService {
         User waiter = currentUserRequired();
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getReservationId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
-        if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only confirmed reservations can open an order");
+        if (reservation.getStatus() != ReservationStatus.ARRIVED && reservation.getStatus() != ReservationStatus.CONFIRMED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only confirmed or checked-in reservations can open an order");
+        }
+        if (reservation.getTableId() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation must be assigned to a table before opening an order");
         }
         if (orderRepository.findByReservationReservationId(reservation.getReservationId()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation already has an order");
+        }
+        RestaurantTable table = tableRepository.findByIdForUpdate(reservation.getTableId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned table not found"));
+        if (!Boolean.TRUE.equals(table.getIsActive())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Assigned table is not active");
+        }
+        if (table.getStatus() != RestaurantTable.TableStatus.OCCUPIED) {
+            table.setStatus(RestaurantTable.TableStatus.OCCUPIED);
         }
 
         RestaurantOrder order = new RestaurantOrder();
@@ -260,6 +276,7 @@ public class OrderService {
         order.setStatus(OrderStatus.CLOSED);
         order.setClosedAt(LocalDateTime.now());
         order.getReservation().setStatus(ReservationStatus.COMPLETED);
+        updateAssignedTableStatus(order.getReservation(), RestaurantTable.TableStatus.CLEANING);
         return toResponse(orderRepository.save(order));
     }
 
@@ -280,6 +297,7 @@ public class OrderService {
         order.setStatus(OrderStatus.CANCELLED);
         order.setClosedAt(LocalDateTime.now());
         order.getReservation().setStatus(ReservationStatus.CANCELLED);
+        updateAssignedTableStatus(order.getReservation(), RestaurantTable.TableStatus.AVAILABLE);
         return toResponse(orderRepository.save(order));
     }
 
@@ -390,11 +408,18 @@ public class OrderService {
                 .filter(item -> item.status() != OrderItemStatus.CANCELLED)
                 .map(OrderItemResponse::lineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        Reservation reservation = order.getReservation();
+        RestaurantTable table = findAssignedTable(reservation);
         return new OrderResponse(
                 order.getId(),
                 order.getOrderCode(),
-                order.getReservation().getReservationId(),
-                order.getReservation().getFullName(),
+                reservation.getReservationId(),
+                reservation.getFullName(),
+                reservation.getStatus(),
+                reservation.getTableId(),
+                table == null ? null : table.getTableNumber(),
+                table == null ? null : table.getTableName(),
+                table == null || table.getStatus() == null ? null : table.getStatus().name(),
                 order.getWaiter().getUserId(),
                 order.getWaiter().getFullName(),
                 order.getPublicAccessToken(),
@@ -407,6 +432,20 @@ public class OrderService {
                 order.getClosedAt(),
                 order.getCreatedAt(),
                 order.getUpdatedAt());
+    }
+
+    private RestaurantTable findAssignedTable(Reservation reservation) {
+        if (reservation.getTableId() == null) return null;
+        return tableRepository.findById(reservation.getTableId()).orElse(null);
+    }
+
+    private void updateAssignedTableStatus(Reservation reservation, RestaurantTable.TableStatus status) {
+        if (reservation.getTableId() == null) return;
+        tableRepository.findByIdForUpdate(reservation.getTableId()).ifPresent(table -> {
+            if (Boolean.TRUE.equals(table.getIsActive())) {
+                table.setStatus(status);
+            }
+        });
     }
 
     private OrderItemResponse toItemResponse(OrderItem item) {

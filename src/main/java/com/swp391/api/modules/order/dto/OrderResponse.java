@@ -1,6 +1,7 @@
 package com.swp391.api.modules.order.dto;
 
 import com.swp391.api.modules.order.entity.OrderStatus;
+import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -10,6 +11,11 @@ public record OrderResponse(
         String orderCode,
         Long reservationId,
         String reservationGuestName,
+        ReservationStatus reservationStatus,
+        Long tableId,
+        String tableNumber,
+        String tableName,
+        String tableStatus,
         Long waiterId,
         String waiterName,
         String publicAccessToken,
