@@ -45,7 +45,7 @@ public class SecurityConfig {
                         .hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
                         .requestMatchers("/api/menu/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
                         .requestMatchers("/api/menu-categories/**").hasAnyRole("ADMIN", "MANAGER")
-                        .requestMatchers("/api/orders/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
+                        .requestMatchers("/api/orders/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
                         .requestMatchers("/api/check-in/**").hasAnyRole("ADMIN", "MANAGER", "RECEPTIONIST")
                         .anyRequest().authenticated()
                 )
