@@ -115,7 +115,7 @@ public class TableServiceImpl implements TableService {
         if (warningCutoff.isBefore(now)) {
             warningCutoff = LocalTime.MAX;
         }
-        List<Reservation> upcomingReservations = reservationRepository.findUpcomingConfirmedReservations(
+        List<Reservation> upcomingReservations = reservationRepository.findConfirmedReservationsWithTablesInWindow(
                 today,
                 now,
                 warningCutoff
@@ -129,8 +129,10 @@ public class TableServiceImpl implements TableService {
 
     private RestaurantTable.TableStatus calculateDynamicStatus(RestaurantTable table,
                                                                List<Reservation> upcomingReservations) {
-        if (table.getStatus() == RestaurantTable.TableStatus.OCCUPIED) {
-            return RestaurantTable.TableStatus.OCCUPIED;
+        if (table.getStatus() == RestaurantTable.TableStatus.OCCUPIED
+                || table.getStatus() == RestaurantTable.TableStatus.RESERVED
+                || table.getStatus() == RestaurantTable.TableStatus.CLEANING) {
+            return table.getStatus();
         }
 
         boolean hasUpcomingReservation = upcomingReservations.stream()
@@ -142,13 +144,15 @@ public class TableServiceImpl implements TableService {
     }
 
     private boolean reservesTable(Reservation reservation, RestaurantTable table) {
+        if (reservation.getTables() != null
+                && reservation.getTables().stream().anyMatch(currentTable -> currentTable.getId().equals(table.getId()))) {
+            return true;
+        }
+
         if (reservation.getTableId() != null) {
             return reservation.getTableId().equals(table.getId());
         }
-
-        Integer guests = reservation.getNumberOfGuests();
-        Integer capacity = table.getCapacity();
-        return guests != null && capacity != null && guests <= capacity;
+        return false;
     }
 
     @Override

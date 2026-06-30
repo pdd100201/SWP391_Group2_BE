@@ -8,9 +8,11 @@ import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import com.swp391.api.modules.reservation.repository.ReservationRepository;
 import com.swp391.api.modules.reservation.service.ReservationService;
+import com.swp391.api.modules.table.entity.RestaurantTable;
 import com.swp391.api.modules.table.repository.TableRepository;
 import com.swp391.api.modules.user.entity.Customer;
 import com.swp391.api.modules.user.repository.CustomerRepository;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
@@ -29,9 +31,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional
 public class ReservationServiceImpl implements ReservationService {
 
-    private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_RECEPTIONIST");
-    private static final int RESERVATION_SLOT_MINUTES = 90;
-    private static final int MAX_BOOKABLE_SEATS = 48;
+    private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER", "ROLE_RECEPTIONIST");
+    private static final int AVERAGE_DINING_MINUTES = 90;
 
     private final ReservationRepository reservationRepository;
     private final CustomerRepository customerRepository;
@@ -56,11 +57,10 @@ public class ReservationServiceImpl implements ReservationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservation date and time must be in the future");
         }
 
-        if (request.getNumberOfGuests() > 30) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Number of guests must not exceed 30");
-        }
-
-        validateTableAvailability(request);
+        validateTableAvailability(
+                request.getReservationDate(),
+                request.getReservationTime(),
+                request.getNumberOfGuests());
 
         Reservation reservation = new Reservation();
         reservation.setFullName(request.getFullName());
@@ -74,38 +74,6 @@ public class ReservationServiceImpl implements ReservationService {
         reservation.setCustomerId(customer.getCustomerId());
 
         return toResponse(reservationRepository.save(reservation));
-    }
-
-    private void validateTableAvailability(CreateReservationRequest request) {
-        LocalTime startTime = request.getReservationTime();
-        LocalTime endTime = startTime.plusMinutes(RESERVATION_SLOT_MINUTES);
-        LocalTime overlapStart = startTime.minusMinutes(RESERVATION_SLOT_MINUTES);
-        Integer requestedGuests = request.getNumberOfGuests();
-
-        if (requestedGuests <= 6) {
-            Long totalFitTables = tableRepository.countAvailableTablesThatFitGuests(requestedGuests);
-            Long currentActiveReservationsCount = reservationRepository.countActiveReservationsOverlappingWindow(
-                    request.getReservationDate(),
-                    overlapStart,
-                    endTime
-            );
-
-            if (currentActiveReservationsCount >= totalFitTables) {
-                throw new BusinessException("Nhà hàng đã hết bàn phù hợp cho số lượng khách này vào khung giờ đã chọn. Vui lòng chọn khung giờ khác!");
-            }
-            return;
-        }
-
-        Long totalRestaurantSeats = tableRepository.sumTotalRestaurantSeats();
-        Long totalCurrentBookedSeats = reservationRepository.sumActiveBookedSeatsOverlappingWindow(
-                request.getReservationDate(),
-                overlapStart,
-                endTime
-        );
-
-        if (totalCurrentBookedSeats + requestedGuests > totalRestaurantSeats) {
-            throw new BusinessException("Nhà hàng không đủ tổng sức chứa cho đoàn khách đông vào khung giờ này. Vui lòng chọn khung giờ khác!");
-        }
     }
 
     @Override
@@ -131,7 +99,9 @@ public class ReservationServiceImpl implements ReservationService {
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
 
-        if (reservation.getStatus() == ReservationStatus.COMPLETED || reservation.getStatus() == ReservationStatus.CANCELLED) {
+        if (reservation.getStatus() == ReservationStatus.COMPLETED
+                || reservation.getStatus() == ReservationStatus.CANCELLED
+                || reservation.getStatus() == ReservationStatus.NO_SHOW) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservation cannot be cancelled");
         }
 
@@ -143,6 +113,7 @@ public class ReservationServiceImpl implements ReservationService {
         }
 
         reservation.setStatus(ReservationStatus.CANCELLED);
+        releaseReservedTables(reservation);
         return toResponse(reservationRepository.save(reservation));
     }
 
@@ -157,21 +128,86 @@ public class ReservationServiceImpl implements ReservationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only pending reservations can be confirmed");
         }
 
-        LocalTime reservationTime = reservation.getReservationTime();
-        LocalTime overlapStart = reservationTime.minusMinutes(RESERVATION_SLOT_MINUTES);
-        LocalTime overlapEnd = reservationTime.plusMinutes(RESERVATION_SLOT_MINUTES);
-        Long currentBookedSeats = reservationRepository.sumOccupiedSeatsForOverlappingWindow(
+        validateTableAvailability(
                 reservation.getReservationDate(),
-                overlapStart,
-                overlapEnd
-        );
-
-        if (currentBookedSeats + reservation.getNumberOfGuests() > MAX_BOOKABLE_SEATS) {
-            throw new BusinessException("Cannot confirm: The restaurant capacity is full for this 90-minute time slot.");
-        }
+                reservation.getReservationTime(),
+                reservation.getNumberOfGuests());
 
         reservation.setStatus(ReservationStatus.CONFIRMED);
         return toResponse(reservationRepository.save(reservation));
+    }
+
+    @Override
+    public ReservationResponse assignTables(Long reservationId, AssignTablesRequest request) {
+        requireAnyRole(STAFF_ROLES);
+
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn đặt bàn"));
+
+        if (reservation.getStatus() == ReservationStatus.CANCELLED || reservation.getStatus() == ReservationStatus.NO_SHOW) {
+            throw new BusinessException("Không thể gán bàn cho đơn đã bị hủy hoặc no-show!");
+        }
+
+        List<RestaurantTable> selectedTables = tableRepository.findAllById(request.getTableIds());
+        if (selectedTables.size() != request.getTableIds().size()) {
+            throw new BusinessException("Danh sách bàn không hợp lệ!");
+        }
+
+        for (RestaurantTable table : selectedTables) {
+            boolean assignableStatus = table.getStatus() == RestaurantTable.TableStatus.AVAILABLE
+                    || table.getStatus() == RestaurantTable.TableStatus.RESERVED;
+            if (!Boolean.TRUE.equals(table.getIsActive()) || !assignableStatus) {
+                throw new BusinessException("Bàn " + table.getTableNumber() + " không khả dụng!");
+            }
+        }
+
+        int totalCapacity = selectedTables.stream()
+                .mapToInt(RestaurantTable::getCapacity)
+                .sum();
+        if (totalCapacity < reservation.getNumberOfGuests()) {
+            throw new BusinessException("Tổng sức chứa (" + totalCapacity + ") không đủ cho "
+                    + reservation.getNumberOfGuests() + " khách!");
+        }
+
+        reservation.setTables(selectedTables);
+        reservation.setStatus(ReservationStatus.ARRIVED);
+
+        selectedTables.forEach(table -> table.setStatus(RestaurantTable.TableStatus.OCCUPIED));
+        tableRepository.saveAll(selectedTables);
+
+        return toResponse(reservationRepository.save(reservation));
+    }
+
+    private void validateTableAvailability(LocalDate reservationDate,
+                                           LocalTime requestedStart,
+                                           Integer requestedGuests) {
+        LocalTime requestedEnd = requestedStart.plusMinutes(AVERAGE_DINING_MINUTES);
+        LocalTime overlapStart = requestedStart.minusMinutes(AVERAGE_DINING_MINUTES);
+
+        long totalActiveCapacity = Optional.ofNullable(tableRepository.sumActiveRestaurantSeats()).orElse(0L);
+        long unavailableCapacity = reservationRepository
+                .findUnavailableTablesForReservationWindow(reservationDate, overlapStart, requestedEnd)
+                .stream()
+                .filter(table -> Boolean.TRUE.equals(table.getIsActive()))
+                .mapToLong(RestaurantTable::getCapacity)
+                .sum();
+
+        long availableCapacity = totalActiveCapacity - unavailableCapacity;
+        if (availableCapacity < requestedGuests) {
+            throw new BusinessException("Nhà hàng đã hết chỗ trong khung giờ đã chọn. Vui lòng chọn thời gian khác!");
+        }
+    }
+
+    private void releaseReservedTables(Reservation reservation) {
+        List<RestaurantTable> tables = reservation.getTables();
+        if (tables == null || tables.isEmpty()) {
+            return;
+        }
+
+        tables.stream()
+                .filter(table -> table.getStatus() == RestaurantTable.TableStatus.RESERVED)
+                .forEach(table -> table.setStatus(RestaurantTable.TableStatus.AVAILABLE));
+        tableRepository.saveAll(tables);
     }
 
     private ReservationResponse toResponse(Reservation reservation) {
@@ -194,7 +230,9 @@ public class ReservationServiceImpl implements ReservationService {
 
     private Optional<String> getCurrentEmailOptional() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || authentication instanceof AnonymousAuthenticationToken || authentication.getName() == null) {
+        if (authentication == null
+                || authentication instanceof AnonymousAuthenticationToken
+                || authentication.getName() == null) {
             return Optional.empty();
         }
         return Optional.of(authentication.getName());
@@ -219,51 +257,5 @@ public class ReservationServiceImpl implements ReservationService {
         return authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(roles::contains);
-    }
-
-    @Override
-    public ReservationResponse assignTables(Long reservationId, AssignTablesRequest request) {
-        // 1. Chỉ cho phép nhân viên thao tác
-        requireAnyRole(STAFF_ROLES);
-
-        // 2. Tìm đơn đặt bàn
-        Reservation reservation = reservationRepository.findById(reservationId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn đặt bàn"));
-
-        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
-            throw new BusinessException("Không thể gán bàn cho đơn đã bị hủy!");
-        }
-
-        // 3. Tìm danh sách các bàn dựa trên các ID gửi lên
-        List<com.swp391.api.modules.table.entity.RestaurantTable> selectedTables = tableRepository.findAllById(request.getTableIds());
-
-        if (selectedTables.isEmpty()) {
-            throw new BusinessException("Danh sách bàn không hợp lệ!");
-        }
-
-        // 4. Kiểm tra xem các bàn chọn có đang trống không (tránh nhân viên thao tác nhầm)
-        for (com.swp391.api.modules.table.entity.RestaurantTable table : selectedTables) {
-            if (table.getStatus() != com.swp391.api.modules.table.entity.RestaurantTable.TableStatus.AVAILABLE) {
-                throw new BusinessException("Bàn " + table.getTableNumber() + " không khả dụng!");
-            }
-        }
-
-        // 5. Kiểm tra sức chứa (Tùy chọn: Có thể tắt đi nếu muốn ép khách ngồi chật)
-        int totalCapacity = selectedTables.stream().mapToInt(com.swp391.api.modules.table.entity.RestaurantTable::getCapacity).sum();
-        if (totalCapacity < reservation.getNumberOfGuests()) {
-            throw new BusinessException("Tổng sức chứa (" + totalCapacity + ") không đủ cho " + reservation.getNumberOfGuests() + " khách!");
-        }
-
-        // 6. Cập nhật dữ liệu
-        reservation.setTables(selectedTables);
-        reservation.setStatus(ReservationStatus.ARRIVED); // Hoặc trạng thái CHECKED_IN tùy ông định nghĩa
-
-        // 7. Chuyển trạng thái tất cả các bàn sang OCCUPIED (Đỏ)
-        for (com.swp391.api.modules.table.entity.RestaurantTable table : selectedTables) {
-            table.setStatus(com.swp391.api.modules.table.entity.RestaurantTable.TableStatus.OCCUPIED);
-        }
-        tableRepository.saveAll(selectedTables);
-
-        return toResponse(reservationRepository.save(reservation));
     }
 }

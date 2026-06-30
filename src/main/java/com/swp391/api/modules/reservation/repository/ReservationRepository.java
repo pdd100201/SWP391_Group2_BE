@@ -2,6 +2,7 @@ package com.swp391.api.modules.reservation.repository;
 
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
+import com.swp391.api.modules.table.entity.RestaurantTable;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -28,6 +29,21 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                         @Param("toTime") LocalTime toTime);
 
     @Query("""
+            SELECT DISTINCT r
+            FROM Reservation r
+            LEFT JOIN FETCH r.tables t
+            WHERE r.reservationDate = :reservationDate
+              AND r.status = com.swp391.api.modules.reservation.entity.ReservationStatus.CONFIRMED
+              AND r.reservationTime >= :fromTime
+              AND r.reservationTime <= :toTime
+            ORDER BY r.reservationTime ASC, r.createdAt ASC
+            """)
+    List<Reservation> findConfirmedReservationsWithTablesInWindow(
+            @Param("reservationDate") LocalDate reservationDate,
+            @Param("fromTime") LocalTime fromTime,
+            @Param("toTime") LocalTime toTime);
+
+    @Query("""
             SELECT r
             FROM Reservation r
             WHERE r.reservationDate = :reservationDate
@@ -37,6 +53,19 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             """)
     List<Reservation> findConfirmedNoShowCandidates(@Param("reservationDate") LocalDate reservationDate,
                                                     @Param("cutoffTime") LocalTime cutoffTime);
+
+    @Query("""
+            SELECT DISTINCT r
+            FROM Reservation r
+            LEFT JOIN FETCH r.tables t
+            WHERE r.reservationDate = :reservationDate
+              AND r.status = com.swp391.api.modules.reservation.entity.ReservationStatus.CONFIRMED
+              AND r.reservationTime < :cutoffTime
+            ORDER BY r.reservationTime ASC, r.createdAt ASC
+            """)
+    List<Reservation> findConfirmedNoShowCandidatesWithTables(
+            @Param("reservationDate") LocalDate reservationDate,
+            @Param("cutoffTime") LocalTime cutoffTime);
 
     @Query("""
             SELECT COUNT(r)
@@ -76,6 +105,22 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     Long sumOccupiedSeatsForOverlappingWindow(@Param("reservationDate") LocalDate reservationDate,
                                               @Param("overlapStart") LocalTime overlapStart,
                                               @Param("overlapEnd") LocalTime overlapEnd);
+
+    @Query("""
+            SELECT DISTINCT t
+            FROM Reservation r
+            JOIN r.tables t
+            WHERE r.reservationDate = :reservationDate
+              AND r.status IN (com.swp391.api.modules.reservation.entity.ReservationStatus.PENDING,
+                               com.swp391.api.modules.reservation.entity.ReservationStatus.CONFIRMED,
+                               com.swp391.api.modules.reservation.entity.ReservationStatus.ARRIVED)
+              AND r.reservationTime > :overlapStart
+              AND r.reservationTime < :requestedEnd
+            """)
+    List<RestaurantTable> findUnavailableTablesForReservationWindow(
+            @Param("reservationDate") LocalDate reservationDate,
+            @Param("overlapStart") LocalTime overlapStart,
+            @Param("requestedEnd") LocalTime requestedEnd);
 
     @Query("""
             SELECT r

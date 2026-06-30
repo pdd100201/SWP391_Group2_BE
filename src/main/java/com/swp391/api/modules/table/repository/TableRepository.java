@@ -31,6 +31,22 @@ public interface TableRepository extends JpaRepository<RestaurantTable, Long> {
             """)
     Long sumTotalRestaurantSeats();
 
+    @Query("""
+            SELECT COALESCE(SUM(t.capacity), 0)
+            FROM RestaurantTable t
+            WHERE t.isActive = true
+            """)
+    Long sumActiveRestaurantSeats();
+
+    @Query("""
+            SELECT t
+            FROM RestaurantTable t
+            WHERE t.isActive = true
+              AND t.status = com.swp391.api.modules.table.entity.RestaurantTable.TableStatus.AVAILABLE
+            ORDER BY t.capacity ASC, t.id ASC
+            """)
+    List<RestaurantTable> findAvailableActiveTablesOrderByCapacityAsc();
+
     /**
      * Tìm bàn theo số bàn chính xác, không phân biệt chữ hoa/thường.
      * Dùng để kiểm tra trùng số bàn trước khi tạo bàn mới.

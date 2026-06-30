@@ -84,17 +84,31 @@ public class CheckInServiceImpl implements CheckInService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Table is not active");
         }
 
-        if (table.getStatus() != RestaurantTable.TableStatus.AVAILABLE) {
+        boolean tableReservedForThisReservation = table.getStatus() == RestaurantTable.TableStatus.RESERVED
+                && isTableLinkedToReservation(reservation, table);
+        if (table.getStatus() != RestaurantTable.TableStatus.AVAILABLE && !tableReservedForThisReservation) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Table is not available");
         }
 
         reservation.setStatus(ReservationStatus.ARRIVED);
         reservation.setTableId(table.getId());
+        if (!isTableLinkedToReservation(reservation, table)) {
+            reservation.getTables().add(table);
+        }
         table.setStatus(RestaurantTable.TableStatus.OCCUPIED);
 
         tableRepository.save(table);
         Reservation savedReservation = reservationRepository.save(reservation);
         return toResponse(savedReservation);
+    }
+
+    private boolean isTableLinkedToReservation(Reservation reservation, RestaurantTable table) {
+        if (reservation.getTableId() != null && reservation.getTableId().equals(table.getId())) {
+            return true;
+        }
+
+        return reservation.getTables() != null
+                && reservation.getTables().stream().anyMatch(currentTable -> currentTable.getId().equals(table.getId()));
     }
 
     private ReservationResponse toResponse(Reservation reservation) {
