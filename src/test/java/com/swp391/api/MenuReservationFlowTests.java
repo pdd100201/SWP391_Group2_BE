@@ -38,6 +38,11 @@ class MenuReservationFlowTests {
                 .findFirst()
                 .orElseThrow()
                 .getInventoryItemId();
+        double originalLettuceQuantity = salad.getIngredients().stream()
+                .filter(ingredient -> ingredient.getInventoryItemName().equals("Lettuce"))
+                .findFirst()
+                .orElseThrow()
+                .getRequiredQuantity();
 
         InventoryItem before = inventoryRepository.findById(lettuceId).orElseThrow();
         double physicalBefore = before.getQuantity();
@@ -50,7 +55,7 @@ class MenuReservationFlowTests {
 
         InventoryItem afterReserve = inventoryRepository.findById(lettuceId).orElseThrow();
         assertEquals(physicalBefore, afterReserve.getQuantity(), 0.000001);
-        assertEquals(reservedBefore + 0.15, afterReserve.getReservedQuantity(), 0.000001);
+        assertEquals(reservedBefore + originalLettuceQuantity, afterReserve.getReservedQuantity(), 0.000001);
 
         MenuItemRequest updatedRecipe = new MenuItemRequest();
         updatedRecipe.setName(salad.getName());
@@ -75,8 +80,8 @@ class MenuReservationFlowTests {
         InventoryItem afterServe = inventoryRepository.findById(lettuceId).orElseThrow();
 
         assertEquals("SERVED", served.getStatus());
-        // Reservation keeps the original 0.15 kg snapshot even after the recipe changes to 0.30 kg.
-        assertEquals(physicalBefore - 0.15, afterServe.getQuantity(), 0.000001);
+        // Reservation keeps the original recipe snapshot even after the recipe changes.
+        assertEquals(physicalBefore - originalLettuceQuantity, afterServe.getQuantity(), 0.000001);
         assertEquals(reservedBefore, afterServe.getReservedQuantity(), 0.000001);
     }
 }

@@ -1,6 +1,8 @@
 package com.swp391.api.modules.reservation.service.impl;
 
 import com.swp391.api.common.exception.BusinessException;
+import com.swp391.api.modules.order.entity.OrderStatus;
+import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.reservation.dto.AssignTablesRequest;
 import com.swp391.api.modules.reservation.dto.CreateReservationRequest;
 import com.swp391.api.modules.reservation.dto.ReservationResponse;
@@ -31,20 +33,28 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional
 public class ReservationServiceImpl implements ReservationService {
 
-    private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER", "ROLE_RECEPTIONIST");
+    private static final Set<String> RESERVATION_MANAGEMENT_ROLES = Set.of(
+            "ROLE_ADMIN", "ROLE_MANAGER", "ROLE_RECEPTIONIST");
+    private static final Set<String> RESERVATION_VIEW_ROLES = Set.of(
+            "ROLE_ADMIN", "ROLE_MANAGER", "ROLE_RECEPTIONIST", "ROLE_WAITER");
+    private static final Set<String> STAFF_ROLES = Set.of(
+            "ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER", "ROLE_RECEPTIONIST");
     private static final int AVERAGE_DINING_MINUTES = 90;
     private static final int MIN_ADVANCE_BOOKING_HOURS = 2;
 
     private final ReservationRepository reservationRepository;
     private final CustomerRepository customerRepository;
     private final TableRepository tableRepository;
+    private final OrderRepository orderRepository;
 
     public ReservationServiceImpl(ReservationRepository reservationRepository,
                                   CustomerRepository customerRepository,
-                                  TableRepository tableRepository) {
+                                  TableRepository tableRepository,
+                                  OrderRepository orderRepository) {
         this.reservationRepository = reservationRepository;
         this.customerRepository = customerRepository;
         this.tableRepository = tableRepository;
+        this.orderRepository = orderRepository;
     }
 
     @Override
@@ -90,7 +100,7 @@ public class ReservationServiceImpl implements ReservationService {
     @Override
     @Transactional(readOnly = true)
     public List<ReservationResponse> getAllReservations() {
-        requireAnyRole(STAFF_ROLES);
+        requireAnyRole(RESERVATION_VIEW_ROLES);
         return reservationRepository.findAllByOrderByReservationDateDescReservationTimeDescCreatedAtDesc().stream()
                 .map(this::toResponse)
                 .toList();
@@ -107,7 +117,16 @@ public class ReservationServiceImpl implements ReservationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservation cannot be cancelled");
         }
 
-        if (!hasAnyRole(STAFF_ROLES)) {
+        orderRepository.findByReservationReservationId(reservationId)
+                .filter(order -> order.getStatus() == OrderStatus.OPEN)
+                .ifPresent(order -> {
+                    throw new ResponseStatusException(
+                            HttpStatus.CONFLICT,
+                            "Reservation has an open order. Cancel the order from Orders & Service instead"
+                    );
+                });
+
+        if (!hasAnyRole(RESERVATION_MANAGEMENT_ROLES)) {
             String email = getCurrentEmailRequired();
             if (!reservation.getEmail().equalsIgnoreCase(email)) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot cancel this reservation");
@@ -121,7 +140,7 @@ public class ReservationServiceImpl implements ReservationService {
 
     @Override
     public ReservationResponse confirmReservation(Long reservationId) {
-        requireAnyRole(STAFF_ROLES);
+        requireAnyRole(RESERVATION_MANAGEMENT_ROLES);
 
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
@@ -213,7 +232,7 @@ public class ReservationServiceImpl implements ReservationService {
     }
 
     private ReservationResponse toResponse(Reservation reservation) {
-        return new ReservationResponse(
+        ReservationResponse response = new ReservationResponse(
                 reservation.getReservationId(),
                 reservation.getCustomerId(),
                 reservation.getTableId(),
@@ -228,6 +247,12 @@ public class ReservationServiceImpl implements ReservationService {
                 reservation.getCreatedAt(),
                 reservation.getUpdatedAt()
         );
+        orderRepository.findByReservationReservationId(reservation.getReservationId()).ifPresent(order -> {
+            response.setOrderId(order.getId());
+            response.setOrderCode(order.getOrderCode());
+            response.setOrderStatus(order.getStatus());
+        });
+        return response;
     }
 
     private Optional<String> getCurrentEmailOptional() {

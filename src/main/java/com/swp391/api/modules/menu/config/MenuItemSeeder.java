@@ -5,6 +5,7 @@ import com.swp391.api.modules.inventory.repository.InventoryRepository;
 import com.swp391.api.modules.menu.entity.MenuItem;
 import com.swp391.api.modules.menu.entity.RecipeIngredient;
 import com.swp391.api.modules.menu.repository.MenuItemRepository;
+import com.swp391.api.modules.menu.repository.MenuCategoryRepository;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -13,16 +14,19 @@ import java.util.Arrays;
 import java.util.List;
 
 @Component
-@Order(3)
+@Order(4)
 public class MenuItemSeeder implements CommandLineRunner {
     private final MenuItemRepository menuItemRepository;
     private final InventoryRepository inventoryRepository;
+    private final MenuCategoryRepository categoryRepository;
 
     public MenuItemSeeder(
             MenuItemRepository menuItemRepository,
-            InventoryRepository inventoryRepository) {
+            InventoryRepository inventoryRepository,
+            MenuCategoryRepository categoryRepository) {
         this.menuItemRepository = menuItemRepository;
         this.inventoryRepository = inventoryRepository;
+        this.categoryRepository = categoryRepository;
     }
 
     @Override
@@ -124,12 +128,18 @@ public class MenuItemSeeder implements CommandLineRunner {
         MenuItem item = new MenuItem();
         item.setName(name);
         item.setCategory(category);
+        item.setMenuCategory(categoryRepository.findByNameIgnoreCase(normalizeCategory(category))
+                .orElseThrow(() -> new IllegalStateException("Missing menu category: " + category)));
         item.setDescription(description);
         item.setImageUrl(imageUrl);
         item.setProfitMarginPercent(profitMargin);
         item.setIsActive(true);
         item.replaceRecipe(Arrays.asList(ingredients));
         return item;
+    }
+
+    private String normalizeCategory(String category) {
+        return "Seafood".equalsIgnoreCase(category) ? "Main Course" : category;
     }
 
     private RecipeIngredient ingredient(String inventoryName, double requiredQuantity) {

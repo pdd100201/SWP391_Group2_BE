@@ -10,9 +10,12 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ActiveGuestResponse {
+    private Long reservationId;
     private String fullName;
     private String phone;
     private int numberOfGuests;
     private String checkInTime;
-    private String orderId;
+    private Long orderId;
+    private String orderCode;
+    private String orderPath;
 }
