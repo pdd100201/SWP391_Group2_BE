@@ -33,6 +33,7 @@ public class ReservationServiceImpl implements ReservationService {
 
     private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER", "ROLE_RECEPTIONIST");
     private static final int AVERAGE_DINING_MINUTES = 90;
+    private static final int MIN_ADVANCE_BOOKING_HOURS = 2;
 
     private final ReservationRepository reservationRepository;
     private final CustomerRepository customerRepository;
@@ -53,8 +54,9 @@ public class ReservationServiceImpl implements ReservationService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Only customers can create reservations"));
 
         LocalDateTime reservationDateTime = LocalDateTime.of(request.getReservationDate(), request.getReservationTime());
-        if (reservationDateTime.isBefore(LocalDateTime.now())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservation date and time must be in the future");
+        LocalDateTime earliestReservationDateTime = LocalDateTime.now().plusHours(MIN_ADVANCE_BOOKING_HOURS);
+        if (reservationDateTime.isBefore(earliestReservationDateTime)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservations must be made at least 2 hours in advance");
         }
 
         validateTableAvailability(

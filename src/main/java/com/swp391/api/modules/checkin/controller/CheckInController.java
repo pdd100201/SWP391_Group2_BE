@@ -50,4 +50,10 @@ public class CheckInController {
             @PathVariable Long tableId) {
         return ResponseEntity.ok(checkInService.getActiveGuestByTable(tableId));
     }
+
+    @GetMapping("/table/{tableId}/reserved-guest")
+    public ResponseEntity<com.swp391.api.modules.checkin.dto.ActiveGuestResponse> getReservedGuestByTable(
+            @PathVariable Long tableId) {
+        return ResponseEntity.ok(checkInService.getReservedGuestByTable(tableId));
+    }
 }

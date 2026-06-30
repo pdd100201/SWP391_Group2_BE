@@ -149,4 +149,24 @@ public class CheckInServiceImpl implements CheckInService {
                 .orderId("ORD-" + tableId)
                 .build();
     }
+
+    @Override
+    public com.swp391.api.modules.checkin.dto.ActiveGuestResponse getReservedGuestByTable(Long tableId) {
+        java.util.Optional<com.swp391.api.modules.reservation.entity.Reservation> reservationOpt = reservationRepository
+                .findReservedReservationByTableId(tableId);
+
+        if (reservationOpt.isEmpty()) {
+            return null;
+        }
+
+        com.swp391.api.modules.reservation.entity.Reservation reservation = reservationOpt.get();
+
+        return com.swp391.api.modules.checkin.dto.ActiveGuestResponse.builder()
+                .fullName(reservation.getFullName())
+                .phone(reservation.getPhone())
+                .numberOfGuests(reservation.getNumberOfGuests())
+                .checkInTime(reservation.getReservationTime().toString())
+                .orderId("RES-" + reservation.getReservationId())
+                .build();
+    }
 }

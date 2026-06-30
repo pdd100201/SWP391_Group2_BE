@@ -26,4 +26,6 @@ public interface CheckInService {
      * Lấy thông tin khách hàng đang ngồi thực tế tại bàn dựa trên tableId
      */
     ActiveGuestResponse getActiveGuestByTable(Long tableId);
+
+    ActiveGuestResponse getReservedGuestByTable(Long tableId);
 }

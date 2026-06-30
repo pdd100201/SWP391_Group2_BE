@@ -151,4 +151,13 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
               AND r.status = com.swp391.api.modules.reservation.entity.ReservationStatus.ARRIVED
             """)
     Optional<Reservation> findActiveReservationByTableId(@Param("tableId") Long tableId);
+
+    @Query("""
+            SELECT r
+            FROM Reservation r
+            JOIN r.tables t
+            WHERE t.id = :tableId
+              AND r.status = com.swp391.api.modules.reservation.entity.ReservationStatus.CONFIRMED
+            """)
+    Optional<Reservation> findReservedReservationByTableId(@Param("tableId") Long tableId);
 }
