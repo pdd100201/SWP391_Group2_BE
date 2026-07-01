@@ -14,13 +14,18 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
+    // Lay danh sach reservation cua mot khach theo email, sap xep moi nhat truoc.
     List<Reservation> findByEmailOrderByReservationDateDescReservationTimeDescCreatedAtDesc(String email);
+
+    // Lay tat ca reservation trong he thong, sap xep theo ngay gio dat ban moi nhat truoc.
     List<Reservation> findAllByOrderByReservationDateDescReservationTimeDescCreatedAtDesc();
 
+    // Tim reservation theo id va khoa dong du lieu de tranh nhieu giao dich sua cung luc.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Reservation r where r.reservationId = :id")
     Optional<Reservation> findByIdForUpdate(@Param("id") Long id);
 
+    // Tim cac reservation da confirm trong mot khoang gio de hien thi danh sach sap toi.
     @Query("""
             SELECT r
             FROM Reservation r
@@ -34,6 +39,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                         @Param("fromTime") LocalTime fromTime,
                                                         @Param("toTime") LocalTime toTime);
 
+    // Tim cac reservation da confirm trong khoang gio va fetch luon danh sach ban da gan.
     @Query("""
             SELECT DISTINCT r
             FROM Reservation r
@@ -49,6 +55,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             @Param("fromTime") LocalTime fromTime,
             @Param("toTime") LocalTime toTime);
 
+    // Tim cac reservation da confirm nhung qua gio cutoff, co the duoc xem la no-show.
     @Query("""
             SELECT r
             FROM Reservation r
@@ -60,6 +67,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     List<Reservation> findConfirmedNoShowCandidates(@Param("reservationDate") LocalDate reservationDate,
                                                     @Param("cutoffTime") LocalTime cutoffTime);
 
+    // Tim reservation no-show candidate va fetch luon ban de xu ly giai phong ban neu can.
     @Query("""
             SELECT DISTINCT r
             FROM Reservation r
@@ -73,6 +81,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             @Param("reservationDate") LocalDate reservationDate,
             @Param("cutoffTime") LocalTime cutoffTime);
 
+    // Dem so reservation PENDING/CONFIRMED bi trung khoang gio voi request moi.
     @Query("""
             SELECT COUNT(r)
             FROM Reservation r
@@ -86,6 +95,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                   @Param("overlapStart") LocalTime overlapStart,
                                                   @Param("overlapEnd") LocalTime overlapEnd);
 
+    // Tinh tong so khach da dat trong cac reservation PENDING/CONFIRMED bi trung khoang gio.
     @Query("""
             SELECT COALESCE(SUM(r.numberOfGuests), 0)
             FROM Reservation r
@@ -99,6 +109,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                @Param("overlapStart") LocalTime overlapStart,
                                                @Param("overlapEnd") LocalTime overlapEnd);
 
+    // Tinh tong so ghe dang bi giu/chiem trong cac reservation CONFIRMED hoac ARRIVED bi trung gio.
     @Query("""
             SELECT COALESCE(SUM(r.numberOfGuests), 0)
             FROM Reservation r
@@ -112,6 +123,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                               @Param("overlapStart") LocalTime overlapStart,
                                               @Param("overlapEnd") LocalTime overlapEnd);
 
+    // Lay danh sach ban khong kha dung vi da duoc gan cho reservation trung khoang gio.
     @Query("""
             SELECT DISTINCT t
             FROM Reservation r
@@ -128,6 +140,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             @Param("overlapStart") LocalTime overlapStart,
             @Param("requestedEnd") LocalTime requestedEnd);
 
+    // Tim reservation co the check-in theo ngay, trang thai va tu khoa ten/so dien thoai.
     @Query("""
             SELECT r
             FROM Reservation r
@@ -145,6 +158,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                             @Param("search") String search,
                                             @Param("statuses") List<ReservationStatus> statuses);
 
+    // Tim reservation dang ARRIVED theo tableId thong qua bang lien ket reservation_tables.
     /**
      * 🚀 ĐÃ SỬA: Thay thế hàm cũ bằng câu JPQL Join qua bảng trung gian
      * logic: Tìm đơn Reservation join với danh sách tables 't', nơi mà t.id (hoặc t.tableId) bằng id truyền vào

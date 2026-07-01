@@ -31,6 +31,7 @@ public class CheckInServiceImpl implements CheckInService {
     private final TableRepository tableRepository;
     private final OrderRepository orderRepository;
 
+    // Khoi tao service voi cac repository can dung cho luong check-in, ban va order.
     public CheckInServiceImpl(ReservationRepository reservationRepository,
                               TableRepository tableRepository,
                               OrderRepository orderRepository) {
@@ -41,6 +42,7 @@ public class CheckInServiceImpl implements CheckInService {
 
     @Override
     @Transactional(readOnly = true)
+    // Lay danh sach dat ban co the check-in trong ngay, co the loc theo tu khoa tim kiem.
     public List<ReservationResponse> getCheckInReservations(LocalDate date, String search) {
         if (date == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservation date is required");
@@ -54,6 +56,7 @@ public class CheckInServiceImpl implements CheckInService {
 
     @Override
     @Transactional
+    // Xu ly check-in: kiem tra reservation, kiem tra ban, gan ban va chuyen trang thai sang ARRIVED.
     public ReservationResponse processCheckInTransaction(CheckInRequest request) {
         Reservation reservation = reservationRepository.findById(request.getReservationId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
@@ -91,6 +94,7 @@ public class CheckInServiceImpl implements CheckInService {
 
     @Override
     @Transactional(readOnly = true)
+    // Lay thong tin khach dang dung ban da check-in theo tableId, kem order dang lien ket neu co.
     public ActiveGuestResponse getActiveGuestByTable(Long tableId) {
         return reservationRepository.findActiveReservationByTableId(tableId)
                 .map(this::toActiveGuestResponse)
@@ -99,12 +103,14 @@ public class CheckInServiceImpl implements CheckInService {
 
     @Override
     @Transactional(readOnly = true)
+    // Lay thong tin khach da duoc giu ban nhung chua check-in theo tableId.
     public ActiveGuestResponse getReservedGuestByTable(Long tableId) {
         return reservationRepository.findReservedReservationByTableId(tableId)
                 .map(this::toReservedGuestResponse)
                 .orElse(null);
     }
 
+    // Kiem tra ban da duoc lien ket voi reservation qua tableId chinh hoac danh sach tables hay chua.
     private boolean isTableLinkedToReservation(Reservation reservation, RestaurantTable table) {
         if (reservation.getTableId() != null && reservation.getTableId().equals(table.getId())) {
             return true;
@@ -114,6 +120,7 @@ public class CheckInServiceImpl implements CheckInService {
                 && reservation.getTables().stream().anyMatch(currentTable -> currentTable.getId().equals(table.getId()));
     }
 
+    // Chuyen reservation da check-in thanh response cho active guest va bo sung thong tin order neu ton tai.
     private ActiveGuestResponse toActiveGuestResponse(Reservation reservation) {
         ActiveGuestResponse response = baseGuestResponse(reservation);
         Optional<RestaurantOrder> orderOpt =
@@ -128,12 +135,14 @@ public class CheckInServiceImpl implements CheckInService {
         return response;
     }
 
+    // Chuyen reservation dang reserved thanh response cho guest dang giu ban.
     private ActiveGuestResponse toReservedGuestResponse(Reservation reservation) {
         ActiveGuestResponse response = baseGuestResponse(reservation);
         response.setOrderCode("RES-" + reservation.getReservationId());
         return response;
     }
 
+    // Tao response co cac thong tin khach chung duoc dung lai cho active guest va reserved guest.
     private ActiveGuestResponse baseGuestResponse(Reservation reservation) {
         ActiveGuestResponse response = new ActiveGuestResponse();
         response.setReservationId(reservation.getReservationId());
@@ -144,6 +153,7 @@ public class CheckInServiceImpl implements CheckInService {
         return response;
     }
 
+    // Chuyen entity Reservation thanh DTO ReservationResponse de tra ve cho controller.
     private ReservationResponse toResponse(Reservation reservation) {
         return new ReservationResponse(
                 reservation.getReservationId(),
