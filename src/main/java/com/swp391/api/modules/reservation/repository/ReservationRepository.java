@@ -14,18 +14,19 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
-    // Lay danh sach reservation cua mot khach theo email, sap xep moi nhat truoc.
+
+    // 1. Lấy lịch sử đặt bàn của một khách hàng dựa vào Email (Ưu tiên đơn mới nhất lên đầu).
     List<Reservation> findByEmailOrderByReservationDateDescReservationTimeDescCreatedAtDesc(String email);
 
-    // Lay tat ca reservation trong he thong, sap xep theo ngay gio dat ban moi nhat truoc.
+    // 2. Lấy toàn bộ đơn đặt bàn có trong hệ thống (Ưu tiên ngày giờ mới nhất lên đầu).
     List<Reservation> findAllByOrderByReservationDateDescReservationTimeDescCreatedAtDesc();
 
-    // Tim reservation theo id va khoa dong du lieu de tranh nhieu giao dich sua cung luc.
+    // 3. Tìm đơn đặt bàn theo ID và KHÓA dòng dữ liệu lại (Lock), không cho các luồng khác sửa cùng lúc để tránh lỗi data.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Reservation r where r.reservationId = :id")
     Optional<Reservation> findByIdForUpdate(@Param("id") Long id);
 
-    // Tim cac reservation da confirm trong mot khoang gio de hien thi danh sach sap toi.
+    // 4. Lấy danh sách các đơn đặt bàn sắp đến (đã chốt lịch) trong một khoảng giờ để chuẩn bị đón khách.
     @Query("""
             SELECT r
             FROM Reservation r
@@ -39,7 +40,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                         @Param("fromTime") LocalTime fromTime,
                                                         @Param("toTime") LocalTime toTime);
 
-    // Tim cac reservation da confirm trong khoang gio va fetch luon danh sach ban da gan.
+    // 5. Lấy danh sách các đơn sắp đến trong khoảng giờ, kèm theo luôn thông tin họ ngồi bàn nào (để hiện lên màn hình sơ đồ bàn).
     @Query("""
             SELECT DISTINCT r
             FROM Reservation r
@@ -55,7 +56,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             @Param("fromTime") LocalTime fromTime,
             @Param("toTime") LocalTime toTime);
 
-    // Tim cac reservation da confirm nhung qua gio cutoff, co the duoc xem la no-show.
+    // 6. Tìm các đơn khách đã chốt nhưng quá giờ hẹn mà chưa thấy đến (dùng để lọc ra danh sách khách "bùng lịch").
     @Query("""
             SELECT r
             FROM Reservation r
@@ -67,7 +68,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     List<Reservation> findConfirmedNoShowCandidates(@Param("reservationDate") LocalDate reservationDate,
                                                     @Param("cutoffTime") LocalTime cutoffTime);
 
-    // Tim reservation no-show candidate va fetch luon ban de xu ly giai phong ban neu can.
+    // 7. Tìm các đơn khách "bùng lịch" kèm theo bàn họ đã gán để hệ thống tự động trả lại bàn trống cho khách khác.
     @Query("""
             SELECT DISTINCT r
             FROM Reservation r
@@ -81,7 +82,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             @Param("reservationDate") LocalDate reservationDate,
             @Param("cutoffTime") LocalTime cutoffTime);
 
-    // Dem so reservation PENDING/CONFIRMED bi trung khoang gio voi request moi.
+    // 8. Kiểm tra xem vào khung giờ khách muốn đặt, đã có bao nhiêu đơn khác đang giữ chỗ (để tránh bị trùng lịch/quá tải).
     @Query("""
             SELECT COUNT(r)
             FROM Reservation r
@@ -95,7 +96,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                   @Param("overlapStart") LocalTime overlapStart,
                                                   @Param("overlapEnd") LocalTime overlapEnd);
 
-    // Tinh tong so khach da dat trong cac reservation PENDING/CONFIRMED bi trung khoang gio.
+    // 9. Tính tổng số lượng khách đã đặt chỗ trước trong khung giờ này (để xem nhà hàng còn đủ chỗ chứa hay không).
     @Query("""
             SELECT COALESCE(SUM(r.numberOfGuests), 0)
             FROM Reservation r
@@ -109,7 +110,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                                @Param("overlapStart") LocalTime overlapStart,
                                                @Param("overlapEnd") LocalTime overlapEnd);
 
-    // Tinh tong so ghe dang bi giu/chiem trong cac reservation CONFIRMED hoac ARRIVED bi trung gio.
+    // 10. Tính xem trong khung giờ này đang có tổng cộng bao nhiêu khách thực tế đang ngồi ăn hoặc chắc chắn sẽ đến.
     @Query("""
             SELECT COALESCE(SUM(r.numberOfGuests), 0)
             FROM Reservation r
@@ -123,7 +124,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                               @Param("overlapStart") LocalTime overlapStart,
                                               @Param("overlapEnd") LocalTime overlapEnd);
 
-    // Lay danh sach ban khong kha dung vi da duoc gan cho reservation trung khoang gio.
+    // 11. Tìm danh sách các bàn ĐÃ BỊ KHÓA (không cho đặt nữa) vì đã có khách khác ngồi hoặc đặt trước trong khung giờ này rồi.
     @Query("""
             SELECT DISTINCT t
             FROM Reservation r
@@ -140,7 +141,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             @Param("overlapStart") LocalTime overlapStart,
             @Param("requestedEnd") LocalTime requestedEnd);
 
-    // Tim reservation co the check-in theo ngay, trang thai va tu khoa ten/so dien thoai.
+    // 12. Tìm kiếm nhanh đơn đặt bàn để làm thủ tục Check-in cho khách (tìm theo ngày, trạng thái, hoặc gõ tên/số điện thoại).
     @Query("""
             SELECT r
             FROM Reservation r
@@ -158,11 +159,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
                                             @Param("search") String search,
                                             @Param("statuses") List<ReservationStatus> statuses);
 
-    // Tim reservation dang ARRIVED theo tableId thong qua bang lien ket reservation_tables.
-    /**
-     * 🚀 ĐÃ SỬA: Thay thế hàm cũ bằng câu JPQL Join qua bảng trung gian
-     * logic: Tìm đơn Reservation join với danh sách tables 't', nơi mà t.id (hoặc t.tableId) bằng id truyền vào
-     */
+    // 13. Xem thử bàn này hiện tại có ông khách nào ĐANG NGỒI ĂN (ARRIVED) hay không thông qua bảng liên kết trung gian.
     @Query("""
             SELECT r 
             FROM Reservation r 
@@ -172,6 +169,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             """)
     Optional<Reservation> findActiveReservationByTableId(@Param("tableId") Long tableId);
 
+    // 14. Xem thử bàn này đã có ai ĐẶT TRƯỚC (CONFIRMED) cho lát nữa hay chưa thông qua bảng liên kết trung gian.
     @Query("""
             SELECT r
             FROM Reservation r
@@ -181,5 +179,6 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
             """)
     Optional<Reservation> findReservedReservationByTableId(@Param("tableId") Long tableId);
 
+    // 15. Tìm nhanh đơn đặt bàn dựa vào ID bàn và trạng thái (Hàm tự động tạo theo cơ chế Query Method của Spring Data JPA).
     Optional<Reservation> findByTableIdAndStatus(Long tableId, ReservationStatus status);
 }
