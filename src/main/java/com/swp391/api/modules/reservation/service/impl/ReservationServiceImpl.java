@@ -190,6 +190,7 @@ public class ReservationServiceImpl implements ReservationService {
         }
 
         reservation.setTables(selectedTables);
+        reservation.setTableId(selectedTables.get(0).getId());
         reservation.setStatus(ReservationStatus.ARRIVED);
 
         selectedTables.forEach(table -> table.setStatus(RestaurantTable.TableStatus.OCCUPIED));
@@ -234,7 +235,7 @@ public class ReservationServiceImpl implements ReservationService {
         ReservationResponse response = new ReservationResponse(
                 reservation.getReservationId(),
                 reservation.getCustomerId(),
-                reservation.getTableId(),
+                resolvePrimaryTableId(reservation),
                 reservation.getFullName(),
                 reservation.getPhone(),
                 reservation.getEmail(),
@@ -252,6 +253,19 @@ public class ReservationServiceImpl implements ReservationService {
             response.setOrderStatus(order.getStatus());
         });
         return response;
+    }
+
+    private Long resolvePrimaryTableId(Reservation reservation) {
+        if (reservation.getTableId() != null) {
+            return reservation.getTableId();
+        }
+
+        List<RestaurantTable> tables = reservation.getTables();
+        if (tables == null || tables.isEmpty()) {
+            return null;
+        }
+
+        return tables.get(0).getId();
     }
 
     private Optional<String> getCurrentEmailOptional() {

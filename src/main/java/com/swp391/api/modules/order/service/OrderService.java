@@ -81,13 +81,17 @@ public class OrderService {
         if (reservation.getStatus() != ReservationStatus.ARRIVED && reservation.getStatus() != ReservationStatus.CONFIRMED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only confirmed or checked-in reservations can open an order");
         }
-        if (reservation.getTableId() == null) {
+        Long assignedTableId = resolvePrimaryTableId(reservation);
+        if (assignedTableId == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation must be assigned to a table before opening an order");
+        }
+        if (reservation.getTableId() == null) {
+            reservation.setTableId(assignedTableId);
         }
         if (orderRepository.findByReservationReservationId(reservation.getReservationId()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation already has an order");
         }
-        RestaurantTable table = tableRepository.findByIdForUpdate(reservation.getTableId())
+        RestaurantTable table = tableRepository.findByIdForUpdate(assignedTableId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned table not found"));
         if (!Boolean.TRUE.equals(table.getIsActive())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Assigned table is not active");
@@ -435,17 +439,32 @@ public class OrderService {
     }
 
     private RestaurantTable findAssignedTable(Reservation reservation) {
-        if (reservation.getTableId() == null) return null;
-        return tableRepository.findById(reservation.getTableId()).orElse(null);
+        Long tableId = resolvePrimaryTableId(reservation);
+        if (tableId == null) return null;
+        return tableRepository.findById(tableId).orElse(null);
     }
 
     private void updateAssignedTableStatus(Reservation reservation, RestaurantTable.TableStatus status) {
-        if (reservation.getTableId() == null) return;
-        tableRepository.findByIdForUpdate(reservation.getTableId()).ifPresent(table -> {
+        Long tableId = resolvePrimaryTableId(reservation);
+        if (tableId == null) return;
+        tableRepository.findByIdForUpdate(tableId).ifPresent(table -> {
             if (Boolean.TRUE.equals(table.getIsActive())) {
                 table.setStatus(status);
             }
         });
+    }
+
+    private Long resolvePrimaryTableId(Reservation reservation) {
+        if (reservation.getTableId() != null) {
+            return reservation.getTableId();
+        }
+
+        List<RestaurantTable> tables = reservation.getTables();
+        if (tables == null || tables.isEmpty()) {
+            return null;
+        }
+
+        return tables.get(0).getId();
     }
 
     private OrderItemResponse toItemResponse(OrderItem item) {
