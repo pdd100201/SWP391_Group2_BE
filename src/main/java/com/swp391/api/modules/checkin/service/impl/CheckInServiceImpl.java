@@ -92,72 +92,16 @@ public class CheckInServiceImpl implements CheckInService {
     @Override
     @Transactional(readOnly = true)
     public ActiveGuestResponse getActiveGuestByTable(Long tableId) {
-        Optional<Reservation> reservationOpt = reservationRepository.findActiveReservationByTableId(tableId);
-        if (reservationOpt.isEmpty()) {
-            return null;
-        }
-
-        Reservation reservation = reservationOpt.get();
-        Optional<RestaurantOrder> orderOpt =
-                orderRepository.findByReservationReservationId(reservation.getReservationId());
-
-        ActiveGuestResponse.ActiveGuestResponseBuilder builder = ActiveGuestResponse.builder()
-                .reservationId(reservation.getReservationId())
-                .fullName(reservation.getFullName())
-                .phone(reservation.getPhone())
-                .numberOfGuests(reservation.getNumberOfGuests())
-                .checkInTime(reservation.getReservationTime().toString());
-
-        orderOpt.ifPresent(order -> builder
-                .orderId(order.getId())
-                .orderCode(order.getOrderCode())
-                .orderPath("/dashboard/orders-service"));
-
-        return builder.build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public ActiveGuestResponse getReservedGuestByTable(Long tableId) {
-        Optional<Reservation> reservationOpt = reservationRepository.findReservedReservationByTableId(tableId);
-        if (reservationOpt.isEmpty()) {
-            return null;
-        }
-
-        Reservation reservation = reservationOpt.get();
-        return ActiveGuestResponse.builder()
-                .reservationId(reservation.getReservationId())
-                .fullName(reservation.getFullName())
-                .phone(reservation.getPhone())
-                .numberOfGuests(reservation.getNumberOfGuests())
-                .checkInTime(reservation.getReservationTime().toString())
-                .orderCode("RES-" + reservation.getReservationId())
-                .build();
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public ActiveGuestResponse getActiveGuestByTable(Long tableId) {
-        Optional<Reservation> reservationOpt = reservationRepository.findActiveReservationByTableId(tableId);
-        if (reservationOpt.isEmpty()) {
-            reservationOpt = reservationRepository.findByTableIdAndStatus(tableId, ReservationStatus.ARRIVED);
-        }
-        return reservationOpt.map(this::toActiveGuestResponse).orElse(null);
+        return reservationRepository.findActiveReservationByTableId(tableId)
+                .map(this::toActiveGuestResponse)
+                .orElse(null);
     }
 
     @Override
     @Transactional(readOnly = true)
     public ActiveGuestResponse getReservedGuestByTable(Long tableId) {
         return reservationRepository.findReservedReservationByTableId(tableId)
-                .map(reservation -> ActiveGuestResponse.builder()
-                        .reservationId(reservation.getReservationId())
-                        .fullName(reservation.getFullName())
-                        .phone(reservation.getPhone())
-                        .numberOfGuests(reservation.getNumberOfGuests())
-                        .checkInTime(reservation.getReservationTime().toString())
-                        .orderId(reservation.getReservationId())
-                        .orderCode("RES-" + reservation.getReservationId())
-                        .build())
+                .map(this::toReservedGuestResponse)
                 .orElse(null);
     }
 
@@ -171,21 +115,33 @@ public class CheckInServiceImpl implements CheckInService {
     }
 
     private ActiveGuestResponse toActiveGuestResponse(Reservation reservation) {
-        ActiveGuestResponse.ActiveGuestResponseBuilder builder = ActiveGuestResponse.builder()
-                .reservationId(reservation.getReservationId())
-                .fullName(reservation.getFullName())
-                .phone(reservation.getPhone())
-                .numberOfGuests(reservation.getNumberOfGuests())
-                .checkInTime(reservation.getReservationTime().toString());
-
+        ActiveGuestResponse response = baseGuestResponse(reservation);
         Optional<RestaurantOrder> orderOpt =
                 orderRepository.findByReservationReservationId(reservation.getReservationId());
-        orderOpt.ifPresent(order -> builder
-                .orderId(order.getId())
-                .orderCode(order.getOrderCode())
-                .orderPath("/dashboard/orders-service"));
 
-        return builder.build();
+        orderOpt.ifPresent(order -> {
+            response.setOrderId(order.getId());
+            response.setOrderCode(order.getOrderCode());
+            response.setOrderPath("/dashboard/orders-service");
+        });
+
+        return response;
+    }
+
+    private ActiveGuestResponse toReservedGuestResponse(Reservation reservation) {
+        ActiveGuestResponse response = baseGuestResponse(reservation);
+        response.setOrderCode("RES-" + reservation.getReservationId());
+        return response;
+    }
+
+    private ActiveGuestResponse baseGuestResponse(Reservation reservation) {
+        ActiveGuestResponse response = new ActiveGuestResponse();
+        response.setReservationId(reservation.getReservationId());
+        response.setFullName(reservation.getFullName());
+        response.setPhone(reservation.getPhone());
+        response.setNumberOfGuests(reservation.getNumberOfGuests());
+        response.setCheckInTime(reservation.getReservationTime().toString());
+        return response;
     }
 
     private ReservationResponse toResponse(Reservation reservation) {
@@ -204,46 +160,5 @@ public class CheckInServiceImpl implements CheckInService {
                 reservation.getCreatedAt(),
                 reservation.getUpdatedAt()
         );
-    }
-
-    @Override
-    public com.swp391.api.modules.checkin.dto.ActiveGuestResponse getActiveGuestByTable(Long tableId) {
-        // 🚀 ĐỔI SANG HÀM MỚI TẠO Ở REPOSITORY ĐỂ TÌM QUA BẢNG TRUNG GIAN
-        java.util.Optional<com.swp391.api.modules.reservation.entity.Reservation> reservationOpt = reservationRepository
-                .findActiveReservationByTableId(tableId);
-
-        if (reservationOpt.isEmpty()) {
-            return null;
-        }
-
-        com.swp391.api.modules.reservation.entity.Reservation reservation = reservationOpt.get();
-
-        return com.swp391.api.modules.checkin.dto.ActiveGuestResponse.builder()
-                .fullName(reservation.getFullName())
-                .phone(reservation.getPhone())
-                .numberOfGuests(reservation.getNumberOfGuests())
-                .checkInTime(reservation.getReservationTime().toString())
-                .orderId("ORD-" + tableId)
-                .build();
-    }
-
-    @Override
-    public com.swp391.api.modules.checkin.dto.ActiveGuestResponse getReservedGuestByTable(Long tableId) {
-        java.util.Optional<com.swp391.api.modules.reservation.entity.Reservation> reservationOpt = reservationRepository
-                .findReservedReservationByTableId(tableId);
-
-        if (reservationOpt.isEmpty()) {
-            return null;
-        }
-
-        com.swp391.api.modules.reservation.entity.Reservation reservation = reservationOpt.get();
-
-        return com.swp391.api.modules.checkin.dto.ActiveGuestResponse.builder()
-                .fullName(reservation.getFullName())
-                .phone(reservation.getPhone())
-                .numberOfGuests(reservation.getNumberOfGuests())
-                .checkInTime(reservation.getReservationTime().toString())
-                .orderId("RES-" + reservation.getReservationId())
-                .build();
     }
 }
