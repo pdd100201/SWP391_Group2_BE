@@ -1,6 +1,8 @@
 package com.swp391.api.modules.reservation.service.impl;
 
 import com.swp391.api.common.exception.BusinessException;
+import com.swp391.api.modules.order.entity.OrderStatus;
+import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.reservation.dto.AssignTablesRequest;
 import com.swp391.api.modules.reservation.dto.CreateReservationRequest;
 import com.swp391.api.modules.reservation.dto.ReservationResponse;
@@ -46,12 +48,12 @@ public class ReservationServiceImpl implements ReservationService {
 
     public ReservationServiceImpl(ReservationRepository reservationRepository,
                                   CustomerRepository customerRepository,
-                                  TableRepository tableRepository) {
-                                  CustomerRepository customerRepository,
+                                  TableRepository tableRepository,
                                   OrderRepository orderRepository) {
         this.reservationRepository = reservationRepository;
         this.customerRepository = customerRepository;
         this.tableRepository = tableRepository;
+        this.orderRepository = orderRepository;
     }
 
     @Override
