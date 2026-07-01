@@ -19,6 +19,10 @@ public class MenuItem extends BaseAuditableEntity {
     @Column(nullable = false)
     private String category;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "menu_category_id")
+    private MenuCategory menuCategory;
+
     @Column(length = 1000)
     private String description;
 
@@ -49,6 +53,11 @@ public class MenuItem extends BaseAuditableEntity {
     public void setName(String name) { this.name = name; }
     public String getCategory() { return category; }
     public void setCategory(String category) { this.category = category; }
+    public MenuCategory getMenuCategory() { return menuCategory; }
+    public void setMenuCategory(MenuCategory menuCategory) {
+        this.menuCategory = menuCategory;
+        if (menuCategory != null) this.category = menuCategory.getName();
+    }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
     public String getImageUrl() { return imageUrl; }

@@ -8,6 +8,7 @@ import com.swp391.api.modules.menu.entity.MenuReservation;
 import com.swp391.api.modules.menu.entity.MenuReservationIngredient;
 import com.swp391.api.modules.menu.entity.RecipeIngredient;
 import com.swp391.api.modules.menu.repository.MenuItemRepository;
+import com.swp391.api.modules.menu.repository.MenuCategoryRepository;
 import com.swp391.api.modules.menu.repository.MenuReservationRepository;
 import com.swp391.api.modules.menu.service.MenuService;
 import org.springframework.http.HttpStatus;
@@ -29,14 +30,17 @@ public class MenuServiceImpl implements MenuService {
     private final MenuItemRepository menuItemRepository;
     private final MenuReservationRepository reservationRepository;
     private final InventoryRepository inventoryRepository;
+    private final MenuCategoryRepository categoryRepository;
 
     public MenuServiceImpl(
             MenuItemRepository menuItemRepository,
             MenuReservationRepository reservationRepository,
-            InventoryRepository inventoryRepository) {
+            InventoryRepository inventoryRepository,
+            MenuCategoryRepository categoryRepository) {
         this.menuItemRepository = menuItemRepository;
         this.reservationRepository = reservationRepository;
         this.inventoryRepository = inventoryRepository;
+        this.categoryRepository = categoryRepository;
     }
 
     @Override
@@ -199,7 +203,7 @@ public class MenuServiceImpl implements MenuService {
         }
 
         item.setName(request.getName().trim());
-        item.setCategory(request.getCategory().trim());
+        item.setMenuCategory(resolveCategory(request));
         item.setDescription(normalizeNullable(request.getDescription()));
         item.setImageUrl(normalizeNullable(request.getImageUrl()));
         item.setProfitMarginPercent(request.getProfitMarginPercent());
@@ -243,6 +247,7 @@ public class MenuServiceImpl implements MenuService {
         response.setId(item.getId());
         response.setName(item.getName());
         response.setCategory(item.getCategory());
+        response.setCategoryId(item.getMenuCategory() == null ? null : item.getMenuCategory().getId());
         response.setDescription(item.getDescription());
         response.setImageUrl(item.getImageUrl());
         response.setProfitMarginPercent(item.getProfitMarginPercent());
@@ -356,6 +361,17 @@ public class MenuServiceImpl implements MenuService {
 
     private String normalizeNullable(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private com.swp391.api.modules.menu.entity.MenuCategory resolveCategory(MenuItemRequest request) {
+        if (request.getCategoryId() != null) {
+            return categoryRepository.findById(request.getCategoryId())
+                    .filter(category -> Boolean.TRUE.equals(category.getIsActive()))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Active menu category not found"));
+        }
+        return categoryRepository.findByNameIgnoreCase(request.getCategory().trim())
+                .filter(category -> Boolean.TRUE.equals(category.getIsActive()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Active menu category not found"));
     }
 
     private record LockedRequirement(InventoryItem inventory, double quantity) {}

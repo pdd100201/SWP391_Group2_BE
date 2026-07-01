@@ -33,13 +33,13 @@ public class MenuController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<MenuItemResponse> create(@Valid @RequestBody MenuItemRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(menuService.create(request));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<MenuItemResponse> update(
             @PathVariable Long id,
             @Valid @RequestBody MenuItemRequest request) {
@@ -47,13 +47,13 @@ public class MenuController {
     }
 
     @PatchMapping("/{id}/toggle-active")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<MenuItemResponse> toggleActive(@PathVariable Long id) {
         return ResponseEntity.ok(menuService.toggleActive(id));
     }
 
     @PostMapping("/{id}/reservations")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER', 'WAITER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER')")
     public ResponseEntity<ReservationResponse> reserve(
             @PathVariable Long id,
             @Valid @RequestBody ReservationRequest request) {
@@ -61,13 +61,13 @@ public class MenuController {
     }
 
     @PostMapping("/reservations/{reservationId}/serve")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER', 'WAITER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER')")
     public ResponseEntity<ReservationResponse> serve(@PathVariable Long reservationId) {
         return ResponseEntity.ok(menuService.serve(reservationId));
     }
 
     @PostMapping("/reservations/{reservationId}/release")
-    @PreAuthorize("hasAnyAuthority('ADMIN', 'MANAGER', 'WAITER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER')")
     public ResponseEntity<ReservationResponse> release(@PathVariable Long reservationId) {
         return ResponseEntity.ok(menuService.release(reservationId));
     }

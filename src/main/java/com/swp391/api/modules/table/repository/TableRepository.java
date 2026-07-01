@@ -1,7 +1,11 @@
 package com.swp391.api.modules.table.repository;
 
 import com.swp391.api.modules.table.entity.RestaurantTable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -78,6 +82,10 @@ public interface TableRepository extends JpaRepository<RestaurantTable, Long> {
      * @return Danh sách bàn có trạng thái này
      */
     List<RestaurantTable> findByStatus(RestaurantTable.TableStatus status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from RestaurantTable t where t.id = :id")
+    Optional<RestaurantTable> findByIdForUpdate(@Param("id") Long id);
 
     /**
      * Kiểm tra xem số bàn đã tồn tại chưa.
