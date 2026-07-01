@@ -135,6 +135,32 @@ public class CheckInServiceImpl implements CheckInService {
                 .build();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public ActiveGuestResponse getActiveGuestByTable(Long tableId) {
+        Optional<Reservation> reservationOpt = reservationRepository.findActiveReservationByTableId(tableId);
+        if (reservationOpt.isEmpty()) {
+            reservationOpt = reservationRepository.findByTableIdAndStatus(tableId, ReservationStatus.ARRIVED);
+        }
+        return reservationOpt.map(this::toActiveGuestResponse).orElse(null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ActiveGuestResponse getReservedGuestByTable(Long tableId) {
+        return reservationRepository.findReservedReservationByTableId(tableId)
+                .map(reservation -> ActiveGuestResponse.builder()
+                        .reservationId(reservation.getReservationId())
+                        .fullName(reservation.getFullName())
+                        .phone(reservation.getPhone())
+                        .numberOfGuests(reservation.getNumberOfGuests())
+                        .checkInTime(reservation.getReservationTime().toString())
+                        .orderId(reservation.getReservationId())
+                        .orderCode("RES-" + reservation.getReservationId())
+                        .build())
+                .orElse(null);
+    }
+
     private boolean isTableLinkedToReservation(Reservation reservation, RestaurantTable table) {
         if (reservation.getTableId() != null && reservation.getTableId().equals(table.getId())) {
             return true;
@@ -142,6 +168,24 @@ public class CheckInServiceImpl implements CheckInService {
 
         return reservation.getTables() != null
                 && reservation.getTables().stream().anyMatch(currentTable -> currentTable.getId().equals(table.getId()));
+    }
+
+    private ActiveGuestResponse toActiveGuestResponse(Reservation reservation) {
+        ActiveGuestResponse.ActiveGuestResponseBuilder builder = ActiveGuestResponse.builder()
+                .reservationId(reservation.getReservationId())
+                .fullName(reservation.getFullName())
+                .phone(reservation.getPhone())
+                .numberOfGuests(reservation.getNumberOfGuests())
+                .checkInTime(reservation.getReservationTime().toString());
+
+        Optional<RestaurantOrder> orderOpt =
+                orderRepository.findByReservationReservationId(reservation.getReservationId());
+        orderOpt.ifPresent(order -> builder
+                .orderId(order.getId())
+                .orderCode(order.getOrderCode())
+                .orderPath("/dashboard/orders-service"));
+
+        return builder.build();
     }
 
     private ReservationResponse toResponse(Reservation reservation) {
@@ -160,5 +204,46 @@ public class CheckInServiceImpl implements CheckInService {
                 reservation.getCreatedAt(),
                 reservation.getUpdatedAt()
         );
+    }
+
+    @Override
+    public com.swp391.api.modules.checkin.dto.ActiveGuestResponse getActiveGuestByTable(Long tableId) {
+        // 🚀 ĐỔI SANG HÀM MỚI TẠO Ở REPOSITORY ĐỂ TÌM QUA BẢNG TRUNG GIAN
+        java.util.Optional<com.swp391.api.modules.reservation.entity.Reservation> reservationOpt = reservationRepository
+                .findActiveReservationByTableId(tableId);
+
+        if (reservationOpt.isEmpty()) {
+            return null;
+        }
+
+        com.swp391.api.modules.reservation.entity.Reservation reservation = reservationOpt.get();
+
+        return com.swp391.api.modules.checkin.dto.ActiveGuestResponse.builder()
+                .fullName(reservation.getFullName())
+                .phone(reservation.getPhone())
+                .numberOfGuests(reservation.getNumberOfGuests())
+                .checkInTime(reservation.getReservationTime().toString())
+                .orderId("ORD-" + tableId)
+                .build();
+    }
+
+    @Override
+    public com.swp391.api.modules.checkin.dto.ActiveGuestResponse getReservedGuestByTable(Long tableId) {
+        java.util.Optional<com.swp391.api.modules.reservation.entity.Reservation> reservationOpt = reservationRepository
+                .findReservedReservationByTableId(tableId);
+
+        if (reservationOpt.isEmpty()) {
+            return null;
+        }
+
+        com.swp391.api.modules.reservation.entity.Reservation reservation = reservationOpt.get();
+
+        return com.swp391.api.modules.checkin.dto.ActiveGuestResponse.builder()
+                .fullName(reservation.getFullName())
+                .phone(reservation.getPhone())
+                .numberOfGuests(reservation.getNumberOfGuests())
+                .checkInTime(reservation.getReservationTime().toString())
+                .orderId("RES-" + reservation.getReservationId())
+                .build();
     }
 }

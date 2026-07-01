@@ -99,7 +99,7 @@ public class ReservationServiceImpl implements ReservationService {
     @Override
     @Transactional(readOnly = true)
     public List<ReservationResponse> getAllReservations() {
-        requireAnyRole(STAFF_ROLES);
+        requireAnyRole(RESERVATION_VIEW_ROLES);
         return reservationRepository.findAllByOrderByReservationDateDescReservationTimeDescCreatedAtDesc().stream()
                 .map(this::toResponse)
                 .toList();
