@@ -8,7 +8,26 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: dongphhe153306@fpt.edu.vn
+    password: oxiz zjwb adji sxeq
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 
 jwt:
   secret: c3VwZXJfc2VjcmV0X2tleV9mb3JfcmVzdGF1cmFudF9tYW5hZ2VtZW50X3N5c3RlbV8yMDI0X3N3cDM5MQ==
   expiration: 86400000
+
+vnpay:
+  tmn-code: UZAX4AV4
+  hash-secret: S6B1WR91YOK5OYGCESPEBNFFSYILJQBA
+  pay-url: https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
+  return-url: http://localhost:8080/api/payments/vnpay/return
+  ipn-url: http://localhost:8080/api/payments/vnpay/ipn
+  frontend-return-url: http://localhost:5173/dashboard/orders-service

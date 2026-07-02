@@ -1,7 +1,10 @@
 package com.swp391.api.config;
 
+import com.swp391.api.common.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -9,9 +12,17 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
+@EnableMethodSecurity
 public class SecurityConfig {
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -25,9 +36,27 @@ public class SecurityConfig {
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/").permitAll()
+                        .requestMatchers("/api/auth/**", "/api/order-access/**", "/").permitAll()
+                        .requestMatchers("/api/payments/vnpay/**").permitAll()
+                        .requestMatchers("/api/tables/**").permitAll()
+                        .requestMatchers("/api/qr/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/inventory/**")
+                        .hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers("/api/inventory/**").hasAnyRole("ADMIN", "MANAGER")
+                        .requestMatchers(HttpMethod.GET, "/api/menu/**", "/api/menu-categories/**")
+                        .hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers("/api/menu/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
+                        .requestMatchers("/api/menu-categories/**").hasAnyRole("ADMIN", "MANAGER")
+                        .requestMatchers("/api/orders/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers("/api/payments/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers("/api/promotions/**").hasAnyRole("ADMIN", "MANAGER")
+                        .requestMatchers("/api/check-in/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers("/api/reservations/**").permitAll()
                         .anyRequest().authenticated()
-                );
+                )
+                // kiểm tra Token
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
         return http.build();
     }
 }
