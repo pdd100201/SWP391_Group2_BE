@@ -23,4 +23,14 @@ public interface OrderRepository extends JpaRepository<RestaurantOrder, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from RestaurantOrder o where o.publicAccessToken = :token")
     Optional<RestaurantOrder> findByTokenForUpdate(@Param("token") String token);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select o
+            from RestaurantOrder o
+            where o.status = com.swp391.api.modules.order.entity.OrderStatus.OPEN
+              and o.reservation.tableId = :tableId
+            order by o.createdAt desc
+            """)
+    List<RestaurantOrder> findOpenOrdersByTableIdForUpdate(@Param("tableId") Long tableId);
 }

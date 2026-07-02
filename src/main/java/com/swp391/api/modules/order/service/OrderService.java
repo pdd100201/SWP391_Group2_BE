@@ -30,6 +30,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -230,6 +231,38 @@ public class OrderService {
 
     public OrderResponse submitPublic(String token) {
         return submit(findOrderByTokenForUpdate(token));
+    }
+
+    public OrderResponse addAndSubmitPublicItemsForTable(Long tableId, List<AddOrderItemRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order must contain at least one item");
+        }
+
+        RestaurantOrder order = findOpenOrderByTableForUpdate(tableId);
+        requireOpen(order);
+
+        List<OrderItem> createdItems = new ArrayList<>();
+        for (AddOrderItemRequest request : requests) {
+            MenuItem menuItem = findActiveMenuItem(request.getMenuItemId());
+
+            OrderItem item = new OrderItem();
+            item.setMenuItem(menuItem);
+            item.setMenuItemName(menuItem.getName());
+            item.setMenuItemImageUrl(menuItem.getImageUrl());
+            item.setCategoryName(menuItem.getCategory());
+            item.setUnitPrice(calculateSuggestedPrice(menuItem));
+            item.setQuantity(request.getQuantity());
+            updateSubtotal(item);
+            item.setNote(normalize(request.getNote()));
+            item.setStatus(OrderItemStatus.DRAFT);
+            order.addItem(item);
+            createdItems.add(item);
+        }
+
+        for (OrderItem item : createdItems) {
+            submitItem(item);
+        }
+        return toResponse(orderRepository.save(order));
     }
 
     private OrderResponse submit(RestaurantOrder order) {
@@ -500,6 +533,15 @@ public class OrderService {
     private RestaurantOrder findOrderByTokenForUpdate(String token) {
         return orderRepository.findByTokenForUpdate(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid"));
+    }
+
+    private RestaurantOrder findOpenOrderByTableForUpdate(Long tableId) {
+        return orderRepository.findOpenOrdersByTableIdForUpdate(tableId).stream()
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "This table does not have an open order"
+                ));
     }
 
     private OrderItem findItem(RestaurantOrder order, Long itemId) {
