@@ -37,6 +37,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**", "/api/order-access/**", "/").permitAll()
+                        .requestMatchers("/api/payments/vnpay/**").permitAll()
                         .requestMatchers("/api/tables/**").permitAll()
                         .requestMatchers("/api/qr/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/inventory/**")
@@ -47,6 +48,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/menu/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
                         .requestMatchers("/api/menu-categories/**").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/orders/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers("/api/payments/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers("/api/promotions/**").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/check-in/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
                         .requestMatchers("/api/reservations/**").permitAll()
                         .anyRequest().authenticated()
