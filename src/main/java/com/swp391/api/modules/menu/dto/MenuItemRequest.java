@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
+// Request payload for create/update dish from the menu management screen.
 public class MenuItemRequest {
     @NotBlank(message = "Dish name is required")
     private String name;

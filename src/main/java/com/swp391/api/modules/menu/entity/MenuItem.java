@@ -8,6 +8,7 @@ import java.util.List;
 
 @Entity
 @Table(name = "inventory_linked_menu_items")
+// Dish master data: category, recipe ingredients, price margin, and active flag.
 public class MenuItem extends BaseAuditableEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

@@ -23,6 +23,7 @@ import java.util.List;
 
 @Entity
 @Table(name = "restaurant_order_items")
+// One dish line inside an order, including price snapshot and workflow status.
 public class OrderItem extends BaseAuditableEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

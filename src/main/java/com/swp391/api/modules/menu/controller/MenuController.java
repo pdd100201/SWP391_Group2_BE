@@ -16,6 +16,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/menu")
 public class MenuController {
+    // Thin HTTP layer for menu management. Business rules stay in MenuService.
     private final MenuService menuService;
 
     public MenuController(MenuService menuService) {
@@ -24,6 +25,7 @@ public class MenuController {
 
     @GetMapping
     public ResponseEntity<List<MenuItemResponse>> getAll() {
+        // Used by menu management and order screens to display sellable dishes.
         return ResponseEntity.ok(menuService.getAll());
     }
 
@@ -35,6 +37,7 @@ public class MenuController {
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<MenuItemResponse> create(@Valid @RequestBody MenuItemRequest request) {
+        // Only managers/admins can create dishes because recipes affect inventory costing.
         return ResponseEntity.status(HttpStatus.CREATED).body(menuService.create(request));
     }
 
@@ -49,6 +52,7 @@ public class MenuController {
     @PatchMapping("/{id}/toggle-active")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<MenuItemResponse> toggleActive(@PathVariable Long id) {
+        // Soft enable/disable keeps historical order data intact.
         return ResponseEntity.ok(menuService.toggleActive(id));
     }
 
@@ -57,6 +61,7 @@ public class MenuController {
     public ResponseEntity<ReservationResponse> reserve(
             @PathVariable Long id,
             @Valid @RequestBody ReservationRequest request) {
+        // Reserve inventory for a dish before it is served or released.
         return ResponseEntity.status(HttpStatus.CREATED).body(menuService.reserve(id, request));
     }
 

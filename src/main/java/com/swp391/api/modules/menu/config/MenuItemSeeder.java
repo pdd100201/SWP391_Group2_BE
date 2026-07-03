@@ -15,6 +15,7 @@ import java.util.List;
 
 @Component
 @Order(4)
+// Bootstraps sample dishes after categories and inventory have been seeded.
 public class MenuItemSeeder implements CommandLineRunner {
     private final MenuItemRepository menuItemRepository;
     private final InventoryRepository inventoryRepository;

@@ -25,6 +25,7 @@ import java.util.Set;
 @Service
 @Transactional
 public class MenuServiceImpl implements MenuService {
+    // Small tolerance for double-based inventory math.
     private static final double EPSILON = 0.000001;
 
     private final MenuItemRepository menuItemRepository;
@@ -46,6 +47,7 @@ public class MenuServiceImpl implements MenuService {
     @Override
     @Transactional(readOnly = true)
     public List<MenuItemResponse> getAll() {
+        // Every response includes computed cost, suggested price, stock, and availability.
         return menuItemRepository.findAll().stream().map(this::toResponse).toList();
     }
 
@@ -57,6 +59,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     public MenuItemResponse create(MenuItemRequest request) {
+        // Dish names are unique so staff cannot accidentally create duplicate menu items.
         menuItemRepository.findByNameIgnoreCase(request.getName().trim()).ifPresent(existing -> {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish name already exists");
         });
@@ -69,6 +72,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     public MenuItemResponse update(Long id, MenuItemRequest request) {
+        // Updating a dish also replaces or updates its recipe ingredients.
         MenuItem item = findMenuItem(id);
         menuItemRepository.findByNameIgnoreCase(request.getName().trim())
                 .filter(existing -> !existing.getId().equals(id))
@@ -82,6 +86,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     public MenuItemResponse toggleActive(Long id) {
+        // Inactive dishes remain in history but are hidden from ordering flows.
         MenuItem item = findMenuItem(id);
         item.setIsActive(!item.getIsActive());
         return toResponse(menuItemRepository.save(item));
@@ -89,6 +94,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     public ReservationResponse reserve(Long menuItemId, ReservationRequest request) {
+        // Menu reservation locks ingredient quantities without deducting physical stock yet.
         MenuItem item = findMenuItem(menuItemId);
         if (!Boolean.TRUE.equals(item.getIsActive())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish is inactive");
@@ -103,6 +109,7 @@ public class MenuServiceImpl implements MenuService {
 
         List<LockedRequirement> requirements = new ArrayList<>();
         for (RecipeIngredient recipeIngredient : recipe) {
+            // Lock each inventory row before checking/deducting reserved quantity.
             InventoryItem inventory = lockInventory(recipeIngredient.getInventoryItem().getId());
             double required = recipeIngredient.getRequiredQuantity() * request.getServings();
             double available = inventory.getQuantity() - inventory.getReservedQuantity();
@@ -140,6 +147,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     public ReservationResponse serve(Long reservationId) {
+        // Serving a reservation converts reserved stock into actual inventory consumption.
         MenuReservation reservation = findReservation(reservationId);
         requireReserved(reservation);
 
@@ -166,6 +174,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     public ReservationResponse release(Long reservationId) {
+        // Releasing gives reserved stock back when the dish is not served.
         MenuReservation reservation = findReservation(reservationId);
         requireReserved(reservation);
 
@@ -185,10 +194,12 @@ public class MenuServiceImpl implements MenuService {
     }
 
     private void applyRequest(MenuItem item, MenuItemRequest request) {
+        // Normalize the incoming form and synchronize the recipe child collection.
         Set<Long> inventoryIds = new HashSet<>();
         List<IngredientDefinition> definitions = new ArrayList<>();
 
         for (RecipeIngredientRequest ingredientRequest : request.getIngredients()) {
+            // A recipe cannot contain the same inventory item twice.
             if (!inventoryIds.add(ingredientRequest.getInventoryItemId())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Recipe contains duplicate ingredients");
             }
@@ -243,6 +254,7 @@ public class MenuServiceImpl implements MenuService {
     }
 
     private MenuItemResponse toResponse(MenuItem item) {
+        // Builds the rich DTO used by FE: pricing, stock, availability, and recipe details.
         MenuItemResponse response = new MenuItemResponse();
         response.setId(item.getId());
         response.setName(item.getName());
@@ -263,6 +275,7 @@ public class MenuServiceImpl implements MenuService {
         List<RecipeIngredientResponse> ingredients = new ArrayList<>();
 
         for (RecipeIngredient recipeIngredient : item.getRecipeIngredients()) {
+            // Available servings is limited by the scarcest active ingredient.
             InventoryItem inventory = recipeIngredient.getInventoryItem();
             double available = Math.max(0.0, inventory.getQuantity() - inventory.getReservedQuantity());
             int servings = (int) Math.floor((available + EPSILON) / recipeIngredient.getRequiredQuantity());
@@ -300,6 +313,7 @@ public class MenuServiceImpl implements MenuService {
         }
 
         String availability;
+        // Availability is derived, not stored: inactive, out of stock, limited, or available.
         if (!Boolean.TRUE.equals(item.getIsActive())) {
             availability = "INACTIVE";
         } else if (!blocking.isEmpty()) {
@@ -364,6 +378,7 @@ public class MenuServiceImpl implements MenuService {
     }
 
     private com.swp391.api.modules.menu.entity.MenuCategory resolveCategory(MenuItemRequest request) {
+        // Prefer categoryId from the form, but keep category name fallback for older clients.
         if (request.getCategoryId() != null) {
             return categoryRepository.findById(request.getCategoryId())
                     .filter(category -> Boolean.TRUE.equals(category.getIsActive()))

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
 
+// Loads reservations with ingredient snapshots for serve/release operations.
 public interface MenuReservationRepository extends JpaRepository<MenuReservation, Long> {
     @Override
     @EntityGraph(attributePaths = {"ingredients", "ingredients.inventoryItem"})

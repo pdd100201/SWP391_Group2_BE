@@ -25,6 +25,7 @@ import java.util.List;
 
 @Entity
 @Table(name = "restaurant_orders")
+// Order aggregate rooted at a reservation; owns line items and public access token.
 public class RestaurantOrder extends BaseAuditableEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

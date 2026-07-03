@@ -1,5 +1,6 @@
 package com.swp391.api.modules.menu.dto;
 
+// Recipe row returned to FE, including inventory stock and computed ingredient cost.
 public class RecipeIngredientResponse {
     private Long inventoryItemId;
     private String inventoryItemName;

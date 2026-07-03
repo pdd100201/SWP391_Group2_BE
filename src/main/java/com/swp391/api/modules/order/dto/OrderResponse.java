@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+// Full order projection consumed by staff order management and public order screens.
 public record OrderResponse(
         Long id,
         String orderCode,

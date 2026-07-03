@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/menu-categories")
 public class MenuCategoryController {
+    // Read-only endpoint for category dropdowns in the menu management form.
     private final MenuCategoryRepository categoryRepository;
 
     public MenuCategoryController(MenuCategoryRepository categoryRepository) {
@@ -20,6 +21,7 @@ public class MenuCategoryController {
 
     @GetMapping
     public ResponseEntity<List<MenuCategoryResponse>> getActiveCategories() {
+        // The UI only needs active categories, sorted consistently for selectors.
         return ResponseEntity.ok(categoryRepository.findByIsActiveTrueOrderByNameAsc().stream()
                 .map(this::toResponse)
                 .toList());

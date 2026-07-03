@@ -13,6 +13,7 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "restaurant_order_item_ingredients")
+// Inventory snapshot deducted when an order item is submitted.
 public class OrderItemIngredient {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

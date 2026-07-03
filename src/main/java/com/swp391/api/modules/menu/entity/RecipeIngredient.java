@@ -8,6 +8,7 @@ import jakarta.persistence.*;
         name = "inventory_linked_recipe_ingredients",
         uniqueConstraints = @UniqueConstraint(columnNames = {"menu_item_id", "inventory_item_id"})
 )
+// Join entity defining how much inventory one menu item consumes per serving.
 public class RecipeIngredient {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

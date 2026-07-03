@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+// Rich menu DTO returned to FE with recipe cost, suggested price, and stock availability.
 public class MenuItemResponse {
     private Long id;
     private String name;

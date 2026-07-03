@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/order-access/{token}")
 public class PublicOrderController {
+    // Public customer-facing order API, protected by an unguessable order token.
     private final OrderService orderService;
 
     public PublicOrderController(OrderService orderService) {
@@ -29,6 +30,7 @@ public class PublicOrderController {
 
     @GetMapping
     public ResponseEntity<OrderResponse> getOrder(@PathVariable String token) {
+        // Lets guests reload their current order without staff credentials.
         return ResponseEntity.ok(orderService.getByToken(token));
     }
 
@@ -40,6 +42,7 @@ public class PublicOrderController {
     @PostMapping("/items")
     public ResponseEntity<OrderResponse> addItem(
             @PathVariable String token, @Valid @RequestBody AddOrderItemRequest request) {
+        // Guest-added items stay DRAFT until the guest submits them.
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.addPublicItem(token, request));
     }
 

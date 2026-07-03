@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
+// Persistence queries for menu management and duplicate-name validation.
 public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
     @Override
     @EntityGraph(attributePaths = {"recipeIngredients", "recipeIngredients.inventoryItem"})

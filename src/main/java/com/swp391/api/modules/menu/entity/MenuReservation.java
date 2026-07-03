@@ -8,6 +8,7 @@ import java.util.List;
 
 @Entity
 @Table(name = "inventory_linked_menu_reservations")
+// Temporary hold for ingredient stock before a reserved dish is served or released.
 public class MenuReservation extends BaseAuditableEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

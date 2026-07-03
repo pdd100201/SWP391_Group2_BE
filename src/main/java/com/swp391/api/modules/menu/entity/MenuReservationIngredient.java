@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 
 @Entity
 @Table(name = "inventory_linked_menu_reservation_ingredients")
+// Ingredient snapshot attached to a menu reservation stock hold.
 public class MenuReservationIngredient {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

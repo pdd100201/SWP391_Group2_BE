@@ -47,6 +47,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @Transactional
 public class OrderService {
+    // Small tolerance for double inventory calculations.
     private static final double EPSILON = 0.000001;
     private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER");
 
@@ -76,6 +77,7 @@ public class OrderService {
     }
 
     public OrderResponse create(CreateOrderRequest request) {
+        // Staff opens an order from an arrived/confirmed reservation with an assigned table.
         User waiter = currentUserRequired();
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getReservationId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
@@ -92,6 +94,7 @@ public class OrderService {
         if (orderRepository.findByReservationReservationId(reservation.getReservationId()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation already has an order");
         }
+        // Lock the table so two staff actions cannot change its status at the same time.
         RestaurantTable table = tableRepository.findByIdForUpdate(assignedTableId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned table not found"));
         if (!Boolean.TRUE.equals(table.getIsActive())) {
@@ -114,6 +117,7 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrders(boolean activeOnly) {
+        // Staff workspace normally calls this with activeOnly=true to exclude closed orders.
         List<RestaurantOrder> orders = activeOnly
                 ? orderRepository.findByStatusOrderByCreatedAtDesc(OrderStatus.OPEN)
                 : orderRepository.findAllByOrderByCreatedAtDesc();
@@ -139,6 +143,7 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<MenuItemResponse> getPublicMenu(String token) {
+        // Public menu is scoped to a valid open order token.
         RestaurantOrder order = orderRepository.findByPublicAccessToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid"));
         requireOpen(order);
@@ -158,6 +163,7 @@ public class OrderService {
     }
 
     private OrderResponse addItem(RestaurantOrder order, AddOrderItemRequest request) {
+        // Items start as DRAFT so staff/guest can still edit before inventory is consumed.
         requireOpen(order);
         MenuItem menuItem = findActiveMenuItem(request.getMenuItemId());
 
@@ -187,6 +193,7 @@ public class OrderService {
 
     private OrderResponse updateItem(
             RestaurantOrder order, Long itemId, UpdateOrderItemRequest request, boolean publicAccess) {
+        // Public users can edit only DRAFT items; staff can adjust CONFIRMED quantities.
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
         if (item.getStatus() == OrderItemStatus.DRAFT) {
@@ -212,6 +219,7 @@ public class OrderService {
     }
 
     private OrderResponse removeItem(RestaurantOrder order, Long itemId, boolean publicAccess) {
+        // Removing confirmed staff items cancels them and restores already deducted inventory.
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
         if (item.getStatus() == OrderItemStatus.DRAFT) {
@@ -234,6 +242,7 @@ public class OrderService {
     }
 
     public OrderResponse addAndSubmitPublicItemsForTable(Long tableId, List<AddOrderItemRequest> requests) {
+        // QR-table flow: add items to the table's current OPEN order and submit immediately.
         if (requests == null || requests.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order must contain at least one item");
         }
@@ -266,6 +275,7 @@ public class OrderService {
     }
 
     private OrderResponse submit(RestaurantOrder order) {
+        // Submit only draft items; confirmed/preparing/served items are left unchanged.
         requireOpen(order);
         List<OrderItem> drafts = order.getItems().stream()
                 .filter(item -> item.getStatus() == OrderItemStatus.DRAFT)
@@ -278,6 +288,7 @@ public class OrderService {
     }
 
     public OrderResponse updateItemStatus(Long orderId, Long itemId, OrderItemStatus target) {
+        // Kitchen/service status changes are role-gated and transition-gated.
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
@@ -302,6 +313,7 @@ public class OrderService {
     }
 
     public OrderResponse close(Long orderId) {
+        // Closing is allowed only after every non-cancelled item has been served.
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         boolean hasServedItem = order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.SERVED);
@@ -318,6 +330,7 @@ public class OrderService {
     }
 
     public OrderResponse cancel(Long orderId) {
+        // Cancellation is blocked once preparation has started.
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         boolean started = order.getItems().stream().anyMatch(item ->
@@ -339,6 +352,7 @@ public class OrderService {
     }
 
     private void submitItem(OrderItem item) {
+        // Confirming an item deducts recipe ingredients and stores an audit snapshot.
         MenuItem menuItem = findActiveMenuItem(item.getMenuItem().getId());
         List<RecipeIngredient> recipe = menuItem.getRecipeIngredients().stream()
                 .sorted(Comparator.comparing(ingredient -> ingredient.getInventoryItem().getId()))
@@ -349,6 +363,7 @@ public class OrderService {
 
         BigDecimal foodCost = BigDecimal.ZERO;
         for (RecipeIngredient recipeIngredient : recipe) {
+            // Lock inventory rows in deterministic order to reduce deadlock risk.
             InventoryItem inventory = lockInventory(recipeIngredient.getInventoryItem().getId());
             double required = recipeIngredient.getRequiredQuantity() * item.getQuantity();
             double available = inventory.getQuantity() - inventory.getReservedQuantity();
@@ -382,6 +397,7 @@ public class OrderService {
     }
 
     private void adjustConfirmedQuantity(OrderItem item, int newQuantity) {
+        // Quantity changes after confirmation adjust the previously saved ingredient snapshot.
         int oldQuantity = item.getQuantity();
         if (newQuantity == oldQuantity) return;
         int delta = newQuantity - oldQuantity;
@@ -440,6 +456,7 @@ public class OrderService {
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {
+        // Single response shape for staff and public clients.
         List<OrderItemResponse> items = order.getItems().stream().map(this::toItemResponse).toList();
         BigDecimal total = items.stream()
                 .filter(item -> item.status() != OrderItemStatus.CANCELLED)
@@ -509,6 +526,7 @@ public class OrderService {
     }
 
     private String serviceStatus(RestaurantOrder order) {
+        // Derived status summarizes item state for the order list UI.
         if (order.getStatus() != OrderStatus.OPEN) return order.getStatus().name();
         if (order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.DRAFT)) return "HAS_DRAFT";
         if (order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.PREPARING)) return "PREPARING";

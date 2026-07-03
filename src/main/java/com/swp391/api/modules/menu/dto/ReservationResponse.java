@@ -2,6 +2,7 @@ package com.swp391.api.modules.menu.dto;
 
 import java.time.LocalDateTime;
 
+// Response for menu reservation serve/release workflow.
 public class ReservationResponse {
     private Long id;
     private Long menuItemId;

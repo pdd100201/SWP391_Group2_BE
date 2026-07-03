@@ -7,6 +7,7 @@ import com.swp391.api.modules.menu.dto.ReservationResponse;
 
 import java.util.List;
 
+// Business contract for menu management and inventory-linked recipe operations.
 public interface MenuService {
     List<MenuItemResponse> getAll();
     MenuItemResponse getById(Long id);

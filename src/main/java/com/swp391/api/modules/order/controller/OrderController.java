@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/orders")
 @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
 public class OrderController {
+    // Staff-facing order API. The controller maps routes to service actions only.
     private final OrderService orderService;
 
     public OrderController(OrderService orderService) {
@@ -33,12 +34,14 @@ public class OrderController {
 
     @PostMapping
     public ResponseEntity<OrderResponse> create(@Valid @RequestBody CreateOrderRequest request) {
+        // Opens an order from a reservation that already has an assigned table.
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.create(request));
     }
 
     @GetMapping
     public ResponseEntity<List<OrderResponse>> getOrders(
             @RequestParam(name = "active", defaultValue = "false") boolean activeOnly) {
+        // active=true is used by the order workspace to show only OPEN orders.
         return ResponseEntity.ok(orderService.getOrders(activeOnly));
     }
 
@@ -55,6 +58,7 @@ public class OrderController {
     @PostMapping("/{orderId}/items")
     public ResponseEntity<OrderResponse> addItem(
             @PathVariable Long orderId, @Valid @RequestBody AddOrderItemRequest request) {
+        // Adds a draft item; inventory is deducted only when draft items are submitted.
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.addItem(orderId, request));
     }
 
@@ -73,6 +77,7 @@ public class OrderController {
 
     @PostMapping("/{orderId}/submit")
     public ResponseEntity<OrderResponse> submit(@PathVariable Long orderId) {
+        // Converts all DRAFT items to CONFIRMED and deducts inventory snapshots.
         return ResponseEntity.ok(orderService.submit(orderId));
     }
 
@@ -81,6 +86,7 @@ public class OrderController {
             @PathVariable Long orderId,
             @PathVariable Long itemId,
             @Valid @RequestBody UpdateOrderItemStatusRequest request) {
+        // Drives kitchen/service workflow: CONFIRMED -> PREPARING -> READY -> SERVED.
         return ResponseEntity.ok(orderService.updateItemStatus(orderId, itemId, request.getStatus()));
     }
 
