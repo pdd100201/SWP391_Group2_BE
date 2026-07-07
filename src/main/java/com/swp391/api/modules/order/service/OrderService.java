@@ -1,10 +1,7 @@
 package com.swp391.api.modules.order.service;
 
-import com.swp391.api.modules.inventory.entity.InventoryItem;
-import com.swp391.api.modules.inventory.repository.InventoryRepository;
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
 import com.swp391.api.modules.menu.entity.MenuItem;
-import com.swp391.api.modules.menu.entity.RecipeIngredient;
 import com.swp391.api.modules.menu.repository.MenuItemRepository;
 import com.swp391.api.modules.menu.service.MenuService;
 import com.swp391.api.modules.order.dto.AddOrderItemRequest;
@@ -13,7 +10,6 @@ import com.swp391.api.modules.order.dto.OrderItemResponse;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.dto.UpdateOrderItemRequest;
 import com.swp391.api.modules.order.entity.OrderItem;
-import com.swp391.api.modules.order.entity.OrderItemIngredient;
 import com.swp391.api.modules.order.entity.OrderItemStatus;
 import com.swp391.api.modules.order.entity.OrderStatus;
 import com.swp391.api.modules.order.entity.RestaurantOrder;
@@ -31,7 +27,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -47,15 +42,13 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @Transactional
 public class OrderService {
-    // Small tolerance for double inventory calculations.
-    private static final double EPSILON = 0.000001;
+    // Sai số nhỏ cho các phép tính tồn kho kiểu double.
     private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER");
 
     private final OrderRepository orderRepository;
     private final ReservationRepository reservationRepository;
     private final TableRepository tableRepository;
     private final MenuItemRepository menuItemRepository;
-    private final InventoryRepository inventoryRepository;
     private final UserRepository userRepository;
     private final MenuService menuService;
 
@@ -64,20 +57,18 @@ public class OrderService {
             ReservationRepository reservationRepository,
             TableRepository tableRepository,
             MenuItemRepository menuItemRepository,
-            InventoryRepository inventoryRepository,
             UserRepository userRepository,
             MenuService menuService) {
         this.orderRepository = orderRepository;
         this.reservationRepository = reservationRepository;
         this.tableRepository = tableRepository;
         this.menuItemRepository = menuItemRepository;
-        this.inventoryRepository = inventoryRepository;
         this.userRepository = userRepository;
         this.menuService = menuService;
     }
 
     public OrderResponse create(CreateOrderRequest request) {
-        // Staff opens an order from an arrived/confirmed reservation with an assigned table.
+        // Nhân viên mở order từ reservation đã arrived/confirmed và đã được gán bàn.
         User waiter = currentUserRequired();
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getReservationId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
@@ -117,7 +108,7 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrders(boolean activeOnly) {
-        // Staff workspace normally calls this with activeOnly=true to exclude closed orders.
+        // Màn nhân viên thường gọi activeOnly=true để loại các đơn đã đóng.
         List<RestaurantOrder> orders = activeOnly
                 ? orderRepository.findByStatusOrderByCreatedAtDesc(OrderStatus.OPEN)
                 : orderRepository.findAllByOrderByCreatedAtDesc();
@@ -143,13 +134,12 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<MenuItemResponse> getPublicMenu(String token) {
-        // Public menu is scoped to a valid open order token.
+        // Menu công khai chỉ hợp lệ khi token trỏ tới một order đang mở.
         RestaurantOrder order = orderRepository.findByPublicAccessToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid"));
         requireOpen(order);
         return menuService.getAll().stream()
                 .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
-                .filter(item -> Boolean.TRUE.equals(item.getCostComplete()))
                 .filter(item -> "AVAILABLE".equals(item.getAvailability()) || "LIMITED".equals(item.getAvailability()))
                 .toList();
     }
@@ -163,7 +153,7 @@ public class OrderService {
     }
 
     private OrderResponse addItem(RestaurantOrder order, AddOrderItemRequest request) {
-        // Items start as DRAFT so staff/guest can still edit before inventory is consumed.
+        // Món bắt đầu ở DRAFT để nhân viên/khách còn sửa trước khi tồn kho bị trừ.
         requireOpen(order);
         MenuItem menuItem = findActiveMenuItem(request.getMenuItemId());
 
@@ -172,7 +162,7 @@ public class OrderService {
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(calculateSuggestedPrice(menuItem));
+        item.setUnitPrice(menuItemPrice(menuItem));
         item.setQuantity(request.getQuantity());
         updateSubtotal(item);
         item.setNote(normalize(request.getNote()));
@@ -193,7 +183,7 @@ public class OrderService {
 
     private OrderResponse updateItem(
             RestaurantOrder order, Long itemId, UpdateOrderItemRequest request, boolean publicAccess) {
-        // Public users can edit only DRAFT items; staff can adjust CONFIRMED quantities.
+        // Người dùng công khai chỉ sửa được món DRAFT; nhân viên có thể chỉnh số lượng CONFIRMED.
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
         if (item.getStatus() == OrderItemStatus.DRAFT) {
@@ -219,7 +209,7 @@ public class OrderService {
     }
 
     private OrderResponse removeItem(RestaurantOrder order, Long itemId, boolean publicAccess) {
-        // Removing confirmed staff items cancels them and restores already deducted inventory.
+        // Xóa món đã confirmed bởi nhân viên sẽ hủy món và hoàn tồn kho đã trừ.
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
         if (item.getStatus() == OrderItemStatus.DRAFT) {
@@ -242,7 +232,7 @@ public class OrderService {
     }
 
     public OrderResponse addAndSubmitPublicItemsForTable(Long tableId, List<AddOrderItemRequest> requests) {
-        // QR-table flow: add items to the table's current OPEN order and submit immediately.
+        // Luồng QR bàn: thêm món vào order OPEN hiện tại của bàn và submit ngay.
         if (requests == null || requests.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order must contain at least one item");
         }
@@ -259,7 +249,7 @@ public class OrderService {
             item.setMenuItemName(menuItem.getName());
             item.setMenuItemImageUrl(menuItem.getImageUrl());
             item.setCategoryName(menuItem.getCategory());
-            item.setUnitPrice(calculateSuggestedPrice(menuItem));
+            item.setUnitPrice(menuItemPrice(menuItem));
             item.setQuantity(request.getQuantity());
             updateSubtotal(item);
             item.setNote(normalize(request.getNote()));
@@ -275,7 +265,7 @@ public class OrderService {
     }
 
     private OrderResponse submit(RestaurantOrder order) {
-        // Submit only draft items; confirmed/preparing/served items are left unchanged.
+        // Chỉ submit món DRAFT; món confirmed/preparing/served giữ nguyên.
         requireOpen(order);
         List<OrderItem> drafts = order.getItems().stream()
                 .filter(item -> item.getStatus() == OrderItemStatus.DRAFT)
@@ -288,7 +278,7 @@ public class OrderService {
     }
 
     public OrderResponse updateItemStatus(Long orderId, Long itemId, OrderItemStatus target) {
-        // Kitchen/service status changes are role-gated and transition-gated.
+        // Đổi trạng thái bếp/phục vụ được kiểm soát theo vai trò và bước chuyển hợp lệ.
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
@@ -313,7 +303,7 @@ public class OrderService {
     }
 
     public OrderResponse close(Long orderId) {
-        // Closing is allowed only after every non-cancelled item has been served.
+        // Chỉ được đóng order khi mọi món không bị hủy đều đã phục vụ.
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         boolean hasServedItem = order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.SERVED);
@@ -330,7 +320,7 @@ public class OrderService {
     }
 
     public OrderResponse cancel(Long orderId) {
-        // Cancellation is blocked once preparation has started.
+        // Không cho hủy order khi đã bắt đầu chế biến.
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         boolean started = order.getItems().stream().anyMatch(item ->
@@ -352,111 +342,31 @@ public class OrderService {
     }
 
     private void submitItem(OrderItem item) {
-        // Confirming an item deducts recipe ingredients and stores an audit snapshot.
         MenuItem menuItem = findActiveMenuItem(item.getMenuItem().getId());
-        List<RecipeIngredient> recipe = menuItem.getRecipeIngredients().stream()
-                .sorted(Comparator.comparing(ingredient -> ingredient.getInventoryItem().getId()))
-                .toList();
-        if (recipe.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, menuItem.getName() + " has no recipe");
-        }
-
-        BigDecimal foodCost = BigDecimal.ZERO;
-        for (RecipeIngredient recipeIngredient : recipe) {
-            // Lock inventory rows in deterministic order to reduce deadlock risk.
-            InventoryItem inventory = lockInventory(recipeIngredient.getInventoryItem().getId());
-            double required = recipeIngredient.getRequiredQuantity() * item.getQuantity();
-            double available = inventory.getQuantity() - inventory.getReservedQuantity();
-            if (!Boolean.TRUE.equals(inventory.getIsActive()) || available + EPSILON < required) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Not enough available inventory for " + inventory.getItemName());
-            }
-            if (inventory.getPricePerUnit() == null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Inventory price is missing for " + inventory.getItemName());
-            }
-            inventory.setQuantity(inventory.getQuantity() - required);
-            foodCost = foodCost.add(BigDecimal.valueOf(inventory.getPricePerUnit())
-                    .multiply(BigDecimal.valueOf(recipeIngredient.getRequiredQuantity())));
-
-            OrderItemIngredient snapshot = new OrderItemIngredient();
-            snapshot.setInventoryItem(inventory);
-            snapshot.setInventoryItemName(inventory.getItemName());
-            snapshot.setUnit(inventory.getUnit());
-            snapshot.setDeductedQuantity(required);
-            item.addIngredient(snapshot);
-        }
-
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(applyMargin(foodCost, menuItem.getProfitMarginPercent()));
+        item.setUnitPrice(menuItemPrice(menuItem));
         updateSubtotal(item);
         item.setStatus(OrderItemStatus.CONFIRMED);
         item.setSubmittedAt(LocalDateTime.now());
     }
 
     private void adjustConfirmedQuantity(OrderItem item, int newQuantity) {
-        // Quantity changes after confirmation adjust the previously saved ingredient snapshot.
-        int oldQuantity = item.getQuantity();
-        if (newQuantity == oldQuantity) return;
-        int delta = newQuantity - oldQuantity;
-        for (OrderItemIngredient snapshot : item.getIngredients()) {
-            InventoryItem inventory = lockInventory(snapshot.getInventoryItem().getId());
-            double perServing = snapshot.getDeductedQuantity() / oldQuantity;
-            double change = perServing * Math.abs(delta);
-            if (delta > 0) {
-                double available = inventory.getQuantity() - inventory.getReservedQuantity();
-                if (available + EPSILON < change) {
-                    throw new ResponseStatusException(HttpStatus.CONFLICT,
-                            "Not enough available inventory for " + inventory.getItemName());
-                }
-                inventory.setQuantity(inventory.getQuantity() - change);
-                snapshot.setDeductedQuantity(snapshot.getDeductedQuantity() + change);
-            } else {
-                inventory.setQuantity(inventory.getQuantity() + change);
-                snapshot.setDeductedQuantity(Math.max(0.0, snapshot.getDeductedQuantity() - change));
-            }
-        }
+        if (newQuantity == item.getQuantity()) return;
         item.setQuantity(newQuantity);
         updateSubtotal(item);
     }
 
     private void restoreInventory(OrderItem item) {
-        for (OrderItemIngredient snapshot : item.getIngredients().stream()
-                .sorted(Comparator.comparing(ingredient -> ingredient.getInventoryItem().getId()))
-                .toList()) {
-            InventoryItem inventory = lockInventory(snapshot.getInventoryItem().getId());
-            inventory.setQuantity(inventory.getQuantity() + snapshot.getDeductedQuantity());
-        }
     }
 
-    private BigDecimal calculateSuggestedPrice(MenuItem item) {
-        BigDecimal cost = BigDecimal.ZERO;
-        if (item.getRecipeIngredients().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish has no recipe");
-        }
-        for (RecipeIngredient ingredient : item.getRecipeIngredients()) {
-            Double price = ingredient.getInventoryItem().getPricePerUnit();
-            if (price == null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish price is not available");
-            }
-            cost = cost.add(BigDecimal.valueOf(price)
-                    .multiply(BigDecimal.valueOf(ingredient.getRequiredQuantity())));
-        }
-        return applyMargin(cost, item.getProfitMarginPercent());
-    }
-
-    private BigDecimal applyMargin(BigDecimal cost, Double marginPercent) {
-        BigDecimal multiplier = BigDecimal.ONE.add(
-                BigDecimal.valueOf(marginPercent).divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP));
-        BigDecimal raw = cost.multiply(multiplier);
-        return raw.divide(BigDecimal.valueOf(1000), 0, RoundingMode.CEILING)
-                .multiply(BigDecimal.valueOf(1000)).setScale(2);
+    private BigDecimal menuItemPrice(MenuItem item) {
+        return item.getPrice() == null ? BigDecimal.ZERO : item.getPrice().setScale(2, RoundingMode.HALF_UP);
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {
-        // Single response shape for staff and public clients.
+        // Dùng một dạng dữ liệu trả về thống nhất cho giao diện nhân viên và giao diện công khai.
         List<OrderItemResponse> items = order.getItems().stream().map(this::toItemResponse).toList();
         BigDecimal total = items.stream()
                 .filter(item -> item.status() != OrderItemStatus.CANCELLED)
@@ -526,7 +436,7 @@ public class OrderService {
     }
 
     private String serviceStatus(RestaurantOrder order) {
-        // Derived status summarizes item state for the order list UI.
+        // Trạng thái suy ra dùng để tóm tắt tình trạng món cho UI danh sách order.
         if (order.getStatus() != OrderStatus.OPEN) return order.getStatus().name();
         if (order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.DRAFT)) return "HAS_DRAFT";
         if (order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.PREPARING)) return "PREPARING";
@@ -573,11 +483,6 @@ public class OrderService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Active menu item not found"));
     }
 
-    private InventoryItem lockInventory(Long id) {
-        return inventoryRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Inventory item no longer exists"));
-    }
-
     private void requireOpen(RestaurantOrder order) {
         if (order.getStatus() != OrderStatus.OPEN) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order is no longer open");
@@ -605,6 +510,6 @@ public class OrderService {
     }
 
     private void updateSubtotal(OrderItem item) {
-        item.setSubtotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2));
+        item.setSubtotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2, RoundingMode.HALF_UP));
     }
 }

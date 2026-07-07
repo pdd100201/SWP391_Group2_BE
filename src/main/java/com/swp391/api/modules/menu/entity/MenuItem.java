@@ -3,12 +3,11 @@ package com.swp391.api.modules.menu.entity;
 import com.swp391.api.modules.user.entity.BaseAuditableEntity;
 import jakarta.persistence.*;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "inventory_linked_menu_items")
-// Dish master data: category, recipe ingredients, price margin, and active flag.
+// Dữ liệu gốc của món: danh mục, nguyên liệu công thức, biên lợi nhuận và trạng thái hoạt động.
 public class MenuItem extends BaseAuditableEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,23 +29,14 @@ public class MenuItem extends BaseAuditableEntity {
     @Column(name = "image_url")
     private String imageUrl;
 
+    @Column(nullable = false, precision = 19, scale = 2, columnDefinition = "decimal(19,2) default 0")
+    private BigDecimal price = BigDecimal.ZERO;
+
     @Column(name = "profit_margin_percent", nullable = false)
-    private Double profitMarginPercent;
+    private Double legacyPricingCompatibility = 0.0;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
-
-    @OneToMany(mappedBy = "menuItem", cascade = CascadeType.ALL, orphanRemoval = true)
-    @OrderBy("id asc")
-    private List<RecipeIngredient> recipeIngredients = new ArrayList<>();
-
-    public void replaceRecipe(List<RecipeIngredient> ingredients) {
-        recipeIngredients.clear();
-        ingredients.forEach(ingredient -> {
-            ingredient.setMenuItem(this);
-            recipeIngredients.add(ingredient);
-        });
-    }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -63,9 +53,8 @@ public class MenuItem extends BaseAuditableEntity {
     public void setDescription(String description) { this.description = description; }
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
-    public Double getProfitMarginPercent() { return profitMarginPercent; }
-    public void setProfitMarginPercent(Double profitMarginPercent) { this.profitMarginPercent = profitMarginPercent; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price == null ? BigDecimal.ZERO : price; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean active) { isActive = active; }
-    public List<RecipeIngredient> getRecipeIngredients() { return recipeIngredients; }
 }

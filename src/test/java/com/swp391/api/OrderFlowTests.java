@@ -2,8 +2,6 @@ package com.swp391.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import com.swp391.api.modules.inventory.entity.InventoryItem;
-import com.swp391.api.modules.inventory.repository.InventoryRepository;
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
 import com.swp391.api.modules.menu.service.MenuService;
 import com.swp391.api.modules.order.dto.AddOrderItemRequest;
@@ -14,6 +12,8 @@ import com.swp391.api.modules.order.service.OrderService;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import com.swp391.api.modules.reservation.repository.ReservationRepository;
+import com.swp391.api.modules.table.entity.RestaurantTable;
+import com.swp391.api.modules.table.repository.TableRepository;
 import com.swp391.api.modules.user.entity.Customer;
 import com.swp391.api.modules.user.repository.CustomerRepository;
 import java.time.LocalDate;
@@ -33,9 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
 class OrderFlowTests {
     @Autowired private OrderService orderService;
     @Autowired private MenuService menuService;
-    @Autowired private InventoryRepository inventoryRepository;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private CustomerRepository customerRepository;
+    @Autowired private TableRepository tableRepository;
 
     @BeforeEach
     void authenticateWaiter() {
@@ -52,16 +52,17 @@ class OrderFlowTests {
     }
 
     @Test
-    void submitDeductsInventoryAndCancellingConfirmedItemRestoresIt() {
+    void submitUsesMenuItemDirectPrice() {
         MenuItemResponse dish = menuService.getAll().stream()
-                .filter(item -> Boolean.TRUE.equals(item.getCostComplete()))
-                .filter(item -> item.getIngredients().stream().allMatch(ingredient ->
-                        Boolean.TRUE.equals(ingredient.getInventoryActive())
-                                && ingredient.getAvailableQuantity() >= ingredient.getRequiredQuantity() * 2))
+                .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
+                .filter(item -> item.getPrice() != null)
                 .findFirst()
                 .orElseThrow();
-        Long inventoryId = dish.getIngredients().get(0).getInventoryItemId();
-        double quantityBefore = inventoryRepository.findById(inventoryId).orElseThrow().getQuantity();
+
+        RestaurantTable table = tableRepository.findAll().stream()
+                .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
+                .findFirst()
+                .orElseThrow();
 
         Customer customer = new Customer();
         customer.setCustomersEmail("order-flow-test-" + System.nanoTime() + "@example.com");
@@ -79,6 +80,7 @@ class OrderFlowTests {
         reservation.setReservationTime(LocalTime.now());
         reservation.setNumberOfGuests(2);
         reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservation.setTableId(table.getId());
         reservation = reservationRepository.save(reservation);
 
         CreateOrderRequest create = new CreateOrderRequest();
@@ -92,14 +94,9 @@ class OrderFlowTests {
         order = orderService.submit(order.id());
 
         assertEquals(OrderItemStatus.CONFIRMED, order.items().get(0).status());
-        double expectedDeduction = dish.getIngredients().get(0).getRequiredQuantity() * 2;
-        InventoryItem afterSubmit = inventoryRepository.findById(inventoryId).orElseThrow();
-        assertEquals(quantityBefore - expectedDeduction, afterSubmit.getQuantity(), 0.000001);
+        assertEquals(dish.getPrice().multiply(java.math.BigDecimal.valueOf(2)).setScale(2), order.items().get(0).lineTotal());
 
         orderService.removeItem(order.id(), order.items().get(0).id());
-        InventoryItem afterCancel = inventoryRepository.findById(inventoryId).orElseThrow();
-        assertEquals(quantityBefore, afterCancel.getQuantity(), 0.000001);
-
         orderService.cancel(order.id());
         assertEquals(
                 ReservationStatus.CANCELLED,
