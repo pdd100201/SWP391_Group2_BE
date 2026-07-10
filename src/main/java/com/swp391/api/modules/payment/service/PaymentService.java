@@ -10,6 +10,8 @@ import com.swp391.api.modules.payment.dto.InvoiceItemResponse;
 import com.swp391.api.modules.payment.dto.InvoiceResponse;
 import com.swp391.api.modules.payment.dto.PaymentRequest;
 import com.swp391.api.modules.payment.dto.PaymentResponse;
+import com.swp391.api.modules.payment.dto.SepayWebhookRequest;
+import com.swp391.api.modules.payment.entity.Payment;
 import com.swp391.api.modules.payment.dto.VnpayIpnResponse;
 import com.swp391.api.modules.payment.dto.VnpayReturnResult;
 import com.swp391.api.modules.payment.entity.Invoice;
@@ -311,6 +313,8 @@ public class PaymentService {
         });
     }
 
+public interface PaymentService {
+    PaymentResponse createSepayPayment(Long orderId);
     private Long resolvePrimaryTableId(Reservation reservation) {
         if (reservation.getTableId() != null) {
             return reservation.getTableId();
@@ -322,6 +326,7 @@ public class PaymentService {
         return tables.get(0).getId();
     }
 
+    PaymentResponse getLatestPayment(Long orderId);
     private void copyVnpayFields(Invoice invoice, Map<String, String> params) {
         invoice.setVnpTransactionNo(params.get("vnp_TransactionNo"));
         invoice.setVnpResponseCode(params.get("vnp_ResponseCode"));
@@ -330,21 +335,25 @@ public class PaymentService {
         invoice.setVnpCardType(params.get("vnp_CardType"));
     }
 
+    Map<String, Boolean> handleSepayWebhook(SepayWebhookRequest request);
     private boolean amountMatches(Invoice invoice, String vnpAmount) {
         return toVnpAmount(invoice.getTotalAmount()).equals(vnpAmount);
     }
 
+    boolean isOrderPaid(Long orderId);
     private String toVnpAmount(BigDecimal amount) {
         return amount.setScale(0, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100))
                 .toPlainString();
     }
 
+    Payment latestPaymentOrNull(Long orderId);
     private String manualReference(Invoice invoice, PaymentMethod method) {
         return method.name() + "-" + invoice.getInvoiceNumber() + "-"
                 + LocalDateTime.now(VIETNAM_ZONE).format(DateTimeFormatter.ofPattern("HHmmss"));
     }
 
+    PaymentResponse toResponse(Payment payment);
     private InvoiceResponse toResponse(Invoice invoice) {
         RestaurantOrder order = invoice.getOrder();
         Reservation reservation = order.getReservation();
