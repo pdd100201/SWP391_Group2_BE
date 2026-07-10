@@ -107,9 +107,10 @@ public class OrderService {
             table.setStatus(RestaurantTable.TableStatus.OCCUPIED);
         }
 
+        String rePrefix = "ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + "-RE";
+        long reSeq = orderRepository.countByOrderCodeStartingWith(rePrefix) + 1;
         RestaurantOrder order = new RestaurantOrder();
-        order.setOrderCode("ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
-                + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        order.setOrderCode(rePrefix + String.format("%06d", reSeq));
         order.setReservation(reservation);
         order.setWaiter(waiter);
         order.setPublicAccessToken(UUID.randomUUID().toString().replace("-", ""));

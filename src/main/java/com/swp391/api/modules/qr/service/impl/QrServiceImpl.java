@@ -1,19 +1,33 @@
 package com.swp391.api.modules.qr.service.impl;
 
+import com.swp391.api.modules.inventory.entity.InventoryItem;
+import com.swp391.api.modules.inventory.repository.InventoryRepository;
+import com.swp391.api.modules.menu.entity.MenuItem;
+import com.swp391.api.modules.menu.entity.RecipeIngredient;
 import com.swp391.api.modules.menu.repository.MenuItemRepository;
+import com.swp391.api.modules.order.service.OrderService;
 import com.swp391.api.modules.qr.dto.*;
+import com.swp391.api.modules.qr.dto.QrAccessTokenResponse;
+import com.swp391.api.modules.qr.dto.QrOrderSummaryResponse;
 import com.swp391.api.modules.qr.entity.*;
 import com.swp391.api.modules.qr.repository.*;
 import com.swp391.api.modules.qr.service.QrService;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.Optional;
 
 @Service
 public class QrServiceImpl implements QrService {
+
+    private static final double EPSILON = 0.000001;
 
     private final QrSessionRepository sessionRepository;
     private final QrMenuItemRepository menuItemRepository;
@@ -21,6 +35,8 @@ public class QrServiceImpl implements QrService {
     private final MenuItemRepository menuModuleItemRepository;
     private final QrOrderRepository orderRepository;
     private final QrOrderItemRepository orderItemRepository;
+    private final InventoryRepository inventoryRepository;
+    private final OrderService orderService;
 
     public QrServiceImpl(
             QrSessionRepository sessionRepository,
@@ -28,13 +44,17 @@ public class QrServiceImpl implements QrService {
             QrRecipeIngredientRepository recipeIngredientRepository,
             MenuItemRepository menuModuleItemRepository,
             QrOrderRepository orderRepository,
-            QrOrderItemRepository orderItemRepository) {
+            QrOrderItemRepository orderItemRepository,
+            InventoryRepository inventoryRepository,
+            OrderService orderService) {
         this.sessionRepository = sessionRepository;
         this.menuItemRepository = menuItemRepository;
         this.recipeIngredientRepository = recipeIngredientRepository;
         this.menuModuleItemRepository = menuModuleItemRepository;
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
+        this.inventoryRepository = inventoryRepository;
+        this.orderService = orderService;
     }
 
     @Override
@@ -44,7 +64,6 @@ public class QrServiceImpl implements QrService {
         session.setTableId(tableId);
         session.setSessionToken(UUID.randomUUID().toString());
         session.setStartedAt(LocalDateTime.now());
-        session.setExpiredAt(LocalDateTime.now().plusHours(2));
         session.setStatus("ACTIVE");
 
         sessionRepository.save(session);
@@ -115,44 +134,51 @@ public class QrServiceImpl implements QrService {
                 .findBySessionTokenAndStatus(request.getSessionToken(), "ACTIVE")
                 .orElseThrow(() -> new RuntimeException("Invalid or expired session token"));
 
-        if (session.getExpiredAt().isBefore(LocalDateTime.now())) {
-            session.setStatus("EXPIRED");
-            sessionRepository.save(session);
-            throw new RuntimeException("Session has expired");
-        }
-
-        QrOrder order = new QrOrder();
-        order.setTableId(session.getTableId());
-        order.setOrderType("QR_ORDER");
-        order.setStatus("PENDING");
-        order.setCreatedAt(LocalDateTime.now());
-        order.setUpdatedAt(LocalDateTime.now());
-        orderRepository.save(order);
-
-        List<QrOrderItem> savedItems = new ArrayList<>();
-        double totalAmount = 0.0;
+        // Reuse existing OPEN order for this table instead of creating a new one
+        QrOrder order = orderRepository.findFirstByTableIdAndStatus(session.getTableId(), "OPEN")
+                .orElseGet(() -> {
+                    String qrPrefix = "ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + "-QR";
+                    long qrSeq = orderRepository.countByOrderCodeStartingWith(qrPrefix) + 1;
+                    QrOrder newOrder = new QrOrder();
+                    newOrder.setOrderCode(qrPrefix + String.format("%06d", qrSeq));
+                    newOrder.setTableId(session.getTableId());
+                    newOrder.setOrderType("QR_ORDER");
+                    newOrder.setStatus("OPEN");
+                    newOrder.setCreatedAt(LocalDateTime.now());
+                    newOrder.setUpdatedAt(LocalDateTime.now());
+                    return orderRepository.save(newOrder);
+                });
 
         for (QrOrderRequest.OrderItemDto itemDto : request.getItems()) {
             QrMenuItem menuItem = menuItemRepository.findById(itemDto.getItemId())
                     .orElseThrow(() -> new RuntimeException("Menu item not found: " + itemDto.getItemId()));
+            Long mainItemId = menuModuleItemRepository.getReferenceById(menuItem.getId()).getId();
 
-            Double foodCost = recipeIngredientRepository.findFoodCostByMenuItemId(menuItem.getId());
-            double unitPrice = computePrice(menuItem, foodCost != null ? foodCost : 0.0);
-            double subtotal = unitPrice * itemDto.getQuantity();
+            // Merge into existing DRAFT row with same item, don't create duplicate
+            Optional<QrOrderItem> existingDraft = orderItemRepository.findByOrderId(order.getOrderId())
+                    .stream()
+                    .filter(i -> i.getItemId() != null && i.getItemId().equals(mainItemId) && "DRAFT".equals(i.getItemStatus()))
+                    .findFirst();
 
-            QrOrderItem orderItem = new QrOrderItem();
-            orderItem.setOrderId(order.getOrderId());
-            orderItem.setItemId(menuModuleItemRepository.getReferenceById(menuItem.getId()).getId());
-            orderItem.setQuantity(itemDto.getQuantity());
-            orderItem.setUnitPrice(unitPrice);
-            orderItem.setSubtotal(subtotal);
-            orderItem.setItemStatus("PENDING");
-
-            savedItems.add(orderItemRepository.save(orderItem));
-            totalAmount += subtotal;
+            if (existingDraft.isPresent()) {
+                QrOrderItem existing = existingDraft.get();
+                existing.setQuantity(existing.getQuantity() + itemDto.getQuantity());
+                existing.setSubtotal(existing.getUnitPrice() * existing.getQuantity());
+                orderItemRepository.save(existing);
+            } else {
+                Double foodCost = recipeIngredientRepository.findFoodCostByMenuItemId(menuItem.getId());
+                double unitPrice = computePrice(menuItem, foodCost != null ? foodCost : 0.0);
+                QrOrderItem orderItem = new QrOrderItem();
+                orderItem.setOrderId(order.getOrderId());
+                orderItem.setItemId(mainItemId);
+                orderItem.setQuantity(itemDto.getQuantity());
+                orderItem.setUnitPrice(unitPrice);
+                orderItem.setSubtotal(unitPrice * itemDto.getQuantity());
+                orderItemRepository.save(orderItem);
+            }
         }
 
-        return buildOrderResponse(order, savedItems, totalAmount);
+        return buildResponse(order, order.getOrderId());
     }
 
     @Override
@@ -168,6 +194,283 @@ public class QrServiceImpl implements QrService {
                 .sum();
 
         return buildOrderResponse(order, items, totalAmount);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<QrOrderSummaryResponse> getAllOrders() {
+        List<QrOrder> orders = orderRepository.findAllByOrderByCreatedAtDesc();
+        if (orders.isEmpty()) return List.of();
+
+        List<Long> orderIds = orders.stream()
+                .map(QrOrder::getOrderId)
+                .collect(Collectors.toList());
+
+        Map<Long, List<QrOrderItem>> itemsByOrderId = orderItemRepository.findByOrderIdIn(orderIds)
+                .stream()
+                .collect(Collectors.groupingBy(QrOrderItem::getOrderId));
+
+        return orders.stream()
+                .map(order -> {
+                    List<QrOrderItem> items = itemsByOrderId.getOrDefault(order.getOrderId(), List.of());
+                    double total = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
+                    boolean anyDraft = items.stream().anyMatch(i -> "DRAFT".equals(i.getItemStatus()));
+                    boolean anyPreparing = items.stream().anyMatch(i -> "PREPARING".equals(i.getItemStatus()));
+                    boolean anyReady = items.stream().anyMatch(i -> "READY".equals(i.getItemStatus()));
+                    boolean allDone = !items.isEmpty() && items.stream()
+                            .allMatch(i -> "SERVED".equals(i.getItemStatus()) || "CANCELLED".equals(i.getItemStatus()));
+                    String serviceStatus = allDone ? "SERVED"
+                            : anyPreparing ? "PREPARING"
+                            : anyReady ? "READY"
+                            : anyDraft ? "HAS_DRAFT"
+                            : "CONFIRMED";
+                    return new QrOrderSummaryResponse(
+                            order.getOrderId(),
+                            order.getOrderCode(),
+                            order.getTableId(),
+                            order.getStatus(),
+                            serviceStatus,
+                            total,
+                            order.getCreatedAt(),
+                            items.size()
+                    );
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<QrOrderResponse> getActiveOrder(Long tableId) {
+        return orderRepository.findFirstByTableIdAndStatus(tableId, "OPEN")
+                .map(order -> {
+                    List<QrOrderItem> items = orderItemRepository.findByOrderId(order.getOrderId());
+                    double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
+                    return buildOrderResponse(order, items, totalAmount);
+                });
+    }
+
+    @Override
+    @Transactional
+    public QrOrderResponse updateItemStatus(Long orderId, Long itemId, String targetStatus) {
+        QrOrder order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+        if (!"OPEN".equals(order.getStatus())) {
+            throw new RuntimeException("Order is not open");
+        }
+
+        QrOrderItem item = orderItemRepository.findById(itemId)
+                .filter(i -> i.getOrderId().equals(orderId))
+                .orElseThrow(() -> new RuntimeException("Order item not found: " + itemId));
+
+        String current = item.getItemStatus();
+        boolean valid = ("CONFIRMED".equals(current) && "PREPARING".equals(targetStatus))
+                || ("PREPARING".equals(current) && "READY".equals(targetStatus))
+                || ("READY".equals(current) && "SERVED".equals(targetStatus));
+        if (!valid) {
+            throw new RuntimeException("Invalid item status transition: " + current + " → " + targetStatus);
+        }
+
+        item.setItemStatus(targetStatus);
+        orderItemRepository.save(item);
+
+        List<QrOrderItem> items = orderItemRepository.findByOrderId(orderId);
+        double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
+        return buildOrderResponse(order, items, totalAmount);
+    }
+
+    @Override
+    @Transactional
+    public QrOrderResponse closeOrder(Long orderId) {
+        QrOrder order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
+        if (!"OPEN".equals(order.getStatus())) {
+            throw new RuntimeException("Order is not open");
+        }
+
+        List<QrOrderItem> items = orderItemRepository.findByOrderId(orderId);
+        boolean allServedOrCancelled = items.stream()
+                .allMatch(i -> "SERVED".equals(i.getItemStatus()) || "CANCELLED".equals(i.getItemStatus()));
+        boolean hasServed = items.stream().anyMatch(i -> "SERVED".equals(i.getItemStatus()));
+        if (!hasServed || !allServedOrCancelled) {
+            throw new RuntimeException("All non-cancelled items must be SERVED before closing");
+        }
+
+        order.setStatus("CLOSED");
+        order.setUpdatedAt(LocalDateTime.now());
+        orderRepository.save(order);
+
+        double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
+        return buildOrderResponse(order, items, totalAmount);
+    }
+
+    @Override
+    @Transactional
+    public QrOrderResponse addItem(Long orderId, Long menuItemId, Integer quantity) {
+        QrOrder order = requireOpenOrder(orderId);
+        Long mainItemId = menuModuleItemRepository.getReferenceById(menuItemId).getId();
+
+        // Merge into existing DRAFT row with same item instead of adding a new row
+        Optional<QrOrderItem> existingDraft = orderItemRepository.findByOrderId(orderId).stream()
+                .filter(i -> i.getItemId().equals(mainItemId) && "DRAFT".equals(i.getItemStatus()))
+                .findFirst();
+
+        if (existingDraft.isPresent()) {
+            QrOrderItem existing = existingDraft.get();
+            existing.setQuantity(existing.getQuantity() + quantity);
+            existing.setSubtotal(existing.getUnitPrice() * existing.getQuantity());
+            orderItemRepository.save(existing);
+        } else {
+            QrMenuItem qrItem = menuItemRepository.findById(menuItemId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Menu item not found"));
+            Double foodCost = recipeIngredientRepository.findFoodCostByMenuItemId(menuItemId);
+            double unitPrice = computePrice(qrItem, foodCost != null ? foodCost : 0.0);
+
+            QrOrderItem item = new QrOrderItem();
+            item.setOrderId(orderId);
+            item.setItemId(mainItemId);
+            item.setQuantity(quantity);
+            item.setUnitPrice(unitPrice);
+            item.setSubtotal(unitPrice * quantity);
+            item.setItemStatus("DRAFT");
+            orderItemRepository.save(item);
+        }
+
+        return buildResponse(order, orderId);
+    }
+
+    @Override
+    @Transactional
+    public QrOrderResponse updateItem(Long orderId, Long itemId, Integer quantity, String note) {
+        QrOrder order = requireOpenOrder(orderId);
+        QrOrderItem item = requireItem(orderId, itemId);
+        if (!"DRAFT".equals(item.getItemStatus()) && !"CONFIRMED".equals(item.getItemStatus())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only DRAFT or CONFIRMED items can be edited");
+        }
+        if ("CONFIRMED".equals(item.getItemStatus()) && !quantity.equals(item.getQuantity())) {
+            adjustInventory(item, quantity);
+        }
+        item.setQuantity(quantity);
+        item.setSubtotal(item.getUnitPrice() * quantity);
+        item.setNote(note != null && !note.isBlank() ? note.strip() : null);
+        orderItemRepository.save(item);
+        return buildResponse(order, orderId);
+    }
+
+    @Override
+    @Transactional
+    public QrOrderResponse removeItem(Long orderId, Long itemId) {
+        QrOrder order = requireOpenOrder(orderId);
+        QrOrderItem item = requireItem(orderId, itemId);
+        if ("DRAFT".equals(item.getItemStatus())) {
+            orderItemRepository.delete(item);
+        } else if ("CONFIRMED".equals(item.getItemStatus())) {
+            restoreInventory(item);
+            item.setItemStatus("CANCELLED");
+            orderItemRepository.save(item);
+        } else {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This item can no longer be removed");
+        }
+        return buildResponse(order, orderId);
+    }
+
+    @Override
+    @Transactional
+    public QrOrderResponse submitOrder(Long orderId) {
+        QrOrder order = requireOpenOrder(orderId);
+        List<QrOrderItem> drafts = orderItemRepository.findByOrderId(orderId).stream()
+                .filter(i -> "DRAFT".equals(i.getItemStatus()))
+                .toList();
+        if (drafts.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "No draft items to submit");
+        }
+        for (QrOrderItem item : drafts) {
+            submitItem(item);
+        }
+        return buildResponse(order, orderId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<QrAccessTokenResponse> getAccessTokenForTable(Long tableId) {
+        return orderService.getOrders(true).stream()
+                .filter(o -> tableId.equals(o.tableId()))
+                .map(o -> new QrAccessTokenResponse(o.publicAccessToken()))
+                .findFirst();
+    }
+
+    // ── Private helpers ──────────────────────────────────────────────────
+
+    private QrOrder requireOpenOrder(Long orderId) {
+        QrOrder order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+        if (!"OPEN".equals(order.getStatus()))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Order is not open");
+        return order;
+    }
+
+    private QrOrderItem requireItem(Long orderId, Long itemId) {
+        return orderItemRepository.findById(itemId)
+                .filter(i -> i.getOrderId().equals(orderId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order item not found"));
+    }
+
+    private QrOrderResponse buildResponse(QrOrder order, Long orderId) {
+        List<QrOrderItem> items = orderItemRepository.findByOrderId(orderId);
+        double total = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
+        return buildOrderResponse(order, items, total);
+    }
+
+    private void submitItem(QrOrderItem item) {
+        MenuItem menuItem = menuModuleItemRepository.findById(item.getItemId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Menu item not found: " + item.getItemId()));
+        List<RecipeIngredient> recipe = menuItem.getRecipeIngredients();
+        if (recipe.isEmpty())
+            throw new ResponseStatusException(HttpStatus.CONFLICT, menuItem.getName() + " has no recipe");
+
+        for (RecipeIngredient ri : recipe) {
+            InventoryItem inv = inventoryRepository.findByIdForUpdate(ri.getInventoryItem().getId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Inventory item not found"));
+            double required = ri.getRequiredQuantity() * item.getQuantity();
+            double available = inv.getQuantity() - inv.getReservedQuantity();
+            if (!Boolean.TRUE.equals(inv.getIsActive()) || available + EPSILON < required)
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Not enough inventory for: " + inv.getItemName());
+            inv.setQuantity(inv.getQuantity() - required);
+        }
+        item.setItemStatus("CONFIRMED");
+        item.setSubmittedAt(LocalDateTime.now());
+        orderItemRepository.save(item);
+    }
+
+    private void restoreInventory(QrOrderItem item) {
+        menuModuleItemRepository.findById(item.getItemId()).ifPresent(menuItem ->
+                menuItem.getRecipeIngredients().forEach(ri ->
+                        inventoryRepository.findByIdForUpdate(ri.getInventoryItem().getId())
+                                .ifPresent(inv -> inv.setQuantity(
+                                        inv.getQuantity() + ri.getRequiredQuantity() * item.getQuantity()))));
+    }
+
+    private void adjustInventory(QrOrderItem item, int newQty) {
+        int oldQty = item.getQuantity();
+        int delta = newQty - oldQty;
+        menuModuleItemRepository.findById(item.getItemId()).ifPresent(menuItem -> {
+            for (RecipeIngredient ri : menuItem.getRecipeIngredients()) {
+                InventoryItem inv = inventoryRepository.findByIdForUpdate(ri.getInventoryItem().getId())
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                                "Inventory item not found"));
+                double change = ri.getRequiredQuantity() * Math.abs(delta);
+                if (delta > 0) {
+                    double available = inv.getQuantity() - inv.getReservedQuantity();
+                    if (available + EPSILON < change)
+                        throw new ResponseStatusException(HttpStatus.CONFLICT,
+                                "Not enough inventory for: " + inv.getItemName());
+                    inv.setQuantity(inv.getQuantity() - change);
+                } else {
+                    inv.setQuantity(inv.getQuantity() + change);
+                }
+            }
+        });
     }
 
     // suggestedPrice = ceil(foodCost * (1 + margin/100) / 1000) * 1000
@@ -188,8 +491,11 @@ public class QrServiceImpl implements QrService {
                     dto.setSubtotal(item.getSubtotal());
                     dto.setItemStatus(item.getItemStatus());
 
-                    menuItemRepository.findById(item.getItemId())
-                            .ifPresent(mi -> dto.setItemName(mi.getName()));
+                    menuItemRepository.findById(item.getItemId()).ifPresent(mi -> {
+                        dto.setItemName(mi.getName());
+                        dto.setItemImageUrl(mi.getImageUrl());
+                    });
+                    dto.setNote(item.getNote());
 
                     return dto;
                 })
@@ -197,6 +503,7 @@ public class QrServiceImpl implements QrService {
 
         QrOrderResponse response = new QrOrderResponse();
         response.setOrderId(order.getOrderId());
+        response.setOrderCode(order.getOrderCode());
         response.setTableId(order.getTableId());
         response.setStatus(order.getStatus());
         response.setItems(itemDtos);

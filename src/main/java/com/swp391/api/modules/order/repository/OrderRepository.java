@@ -16,6 +16,8 @@ public interface OrderRepository extends JpaRepository<RestaurantOrder, Long> {
     List<RestaurantOrder> findByStatusOrderByCreatedAtDesc(OrderStatus status);
     List<RestaurantOrder> findAllByOrderByCreatedAtDesc();
 
+    long countByOrderCodeStartingWith(String prefix);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from RestaurantOrder o where o.id = :id")
     Optional<RestaurantOrder> findByIdForUpdate(@Param("id") Long id);

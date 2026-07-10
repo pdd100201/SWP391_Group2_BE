@@ -27,7 +27,13 @@ public class QrOrderItem {
     private Double subtotal;
 
     @Column(name = "item_status")
-    private String itemStatus;
+    private String itemStatus = "DRAFT";
+
+    @Column(name = "note", length = 500)
+    private String note;
+
+    @Column(name = "submitted_at")
+    private java.time.LocalDateTime submittedAt;
 
     public Long getOrderItemId() { return orderItemId; }
     public void setOrderItemId(Long orderItemId) { this.orderItemId = orderItemId; }
@@ -49,4 +55,10 @@ public class QrOrderItem {
 
     public String getItemStatus() { return itemStatus; }
     public void setItemStatus(String itemStatus) { this.itemStatus = itemStatus; }
+
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
+
+    public java.time.LocalDateTime getSubmittedAt() { return submittedAt; }
+    public void setSubmittedAt(java.time.LocalDateTime submittedAt) { this.submittedAt = submittedAt; }
 }

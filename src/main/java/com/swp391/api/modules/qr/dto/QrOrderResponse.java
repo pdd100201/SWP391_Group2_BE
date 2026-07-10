@@ -6,6 +6,7 @@ import java.util.List;
 public class QrOrderResponse {
 
     private Long orderId;
+    private String orderCode;
     private Long tableId;
     private String status;
     private List<OrderItemDto> items;
@@ -16,6 +17,9 @@ public class QrOrderResponse {
 
     public Long getOrderId() { return orderId; }
     public void setOrderId(Long orderId) { this.orderId = orderId; }
+
+    public String getOrderCode() { return orderCode; }
+    public void setOrderCode(String orderCode) { this.orderCode = orderCode; }
 
     public Long getTableId() { return tableId; }
     public void setTableId(Long tableId) { this.tableId = tableId; }
@@ -36,10 +40,12 @@ public class QrOrderResponse {
         private Long orderItemId;
         private Long itemId;
         private String itemName;
+        private String itemImageUrl;
         private Integer quantity;
         private Double unitPrice;
         private Double subtotal;
         private String itemStatus;
+        private String note;
 
         public OrderItemDto() {}
 
@@ -52,6 +58,9 @@ public class QrOrderResponse {
         public String getItemName() { return itemName; }
         public void setItemName(String itemName) { this.itemName = itemName; }
 
+        public String getItemImageUrl() { return itemImageUrl; }
+        public void setItemImageUrl(String itemImageUrl) { this.itemImageUrl = itemImageUrl; }
+
         public Integer getQuantity() { return quantity; }
         public void setQuantity(Integer quantity) { this.quantity = quantity; }
 
@@ -63,5 +72,8 @@ public class QrOrderResponse {
 
         public String getItemStatus() { return itemStatus; }
         public void setItemStatus(String itemStatus) { this.itemStatus = itemStatus; }
+
+        public String getNote() { return note; }
+        public void setNote(String note) { this.note = note; }
     }
 }
