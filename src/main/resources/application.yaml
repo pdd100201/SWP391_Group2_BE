@@ -23,3 +23,12 @@ spring:
 jwt:
   secret: c3VwZXJfc2VjcmV0X2tleV9mb3JfcmVzdGF1cmFudF9tYW5hZ2VtZW50X3N5c3RlbV8yMDI0X3N3cDM5MQ==
   expiration: 86400000
+
+payment:
+  sepay:
+    bank-code: "MB"
+    account-number: "0357502140"
+    account-name: "PHAN HUU DONG"
+    webhook-api-key: ""
+    transfer-prefix: "GS"
+    vietqr-template: "compact2"
