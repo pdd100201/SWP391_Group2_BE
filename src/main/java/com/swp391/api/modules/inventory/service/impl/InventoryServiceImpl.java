@@ -191,6 +191,7 @@ public class InventoryServiceImpl implements InventoryService {
         item.setMinimumQuantity(request.getMinimumQuantity());
         item.setPricePerUnit(request.getPricePerUnit());
         item.setSupplier(request.getSupplier());
+        item.setImageUrl(request.getImageUrl());
 
         return toResponse(inventoryRepository.save(item));
     }

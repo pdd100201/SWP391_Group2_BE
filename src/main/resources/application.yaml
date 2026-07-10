@@ -31,3 +31,8 @@ vnpay:
   return-url: http://localhost:8080/api/payments/vnpay/return
   ipn-url: http://localhost:8080/api/payments/vnpay/ipn
   frontend-return-url: http://localhost:5173/dashboard/orders-service
+
+cloudinary:
+  cloud-name: drl2w1tj8
+  api-key: 585318495874699
+  api-secret: XOh027MJ-2xvX5J_ukJcGOSh73w

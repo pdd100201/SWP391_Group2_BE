@@ -1,5 +1,6 @@
 package com.swp391.api.modules.user.service.impl;
 
+import com.swp391.api.common.cloudinary.CloudinaryStorageService;
 import com.swp391.api.modules.user.dto.ChangePasswordRequest;
 import com.swp391.api.modules.user.dto.CustomerProfileResponse;
 import com.swp391.api.modules.user.dto.UpdateProfileRequest;
@@ -26,11 +27,17 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final CustomerRepository customerRepository;
     private final PasswordEncoder passwordEncoder;
+    private final CloudinaryStorageService cloudinaryStorageService;
 
-    public UserServiceImpl(UserRepository userRepository, CustomerRepository customerRepository, PasswordEncoder passwordEncoder) {
+    public UserServiceImpl(
+            UserRepository userRepository,
+            CustomerRepository customerRepository,
+            PasswordEncoder passwordEncoder,
+            CloudinaryStorageService cloudinaryStorageService) {
         this.userRepository = userRepository;
         this.customerRepository = customerRepository;
         this.passwordEncoder = passwordEncoder;
+        this.cloudinaryStorageService = cloudinaryStorageService;
     }
 
     @Override
@@ -76,7 +83,7 @@ public class UserServiceImpl implements UserService {
     public UserProfileResponse updateAvatar(MultipartFile file) {
         // Tạo đường dẫn avatar tạm và lưu lại cho tài khoản hiện tại.
         Object account = getCurrentAccount();
-        String avatarUrl = "https://mock-storage.local/avatars/" + (file != null ? file.getOriginalFilename() : "default-avatar.png");
+        String avatarUrl = cloudinaryStorageService.uploadImage(file, "avatars").secureUrl();
 
         if (account instanceof User user) {
             user.setAvatarUrl(avatarUrl);

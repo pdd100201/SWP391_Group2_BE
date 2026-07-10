@@ -28,6 +28,7 @@ public class UpdateInventoryItemRequest {
     private Double pricePerUnit;
 
     private String supplier;
+    private String imageUrl;
 
     public String getCategory() { return category; }
     public void setCategory(String category) { this.category = category; }
@@ -46,4 +47,7 @@ public class UpdateInventoryItemRequest {
 
     public String getSupplier() { return supplier; }
     public void setSupplier(String supplier) { this.supplier = supplier; }
+
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
 }

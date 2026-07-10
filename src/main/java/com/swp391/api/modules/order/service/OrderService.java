@@ -494,8 +494,8 @@ public class OrderService {
         if (promotion.getStatus() != PromotionStatus.ACTIVE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is inactive");
         }
-        LocalDateTime now = LocalDateTime.now();
-        if (now.isBefore(promotion.getStartDate()) || now.isAfter(promotion.getEndDate())) {
+        LocalDate today = LocalDate.now();
+        if (today.isBefore(promotion.getStartDate()) || today.isAfter(promotion.getEndDate())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is outside its valid period");
         }
         if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
