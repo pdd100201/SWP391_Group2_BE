@@ -56,4 +56,11 @@ public class ReservationController {
             @Valid @RequestBody com.swp391.api.modules.reservation.dto.AssignTablesRequest request) {
         return ResponseEntity.ok(reservationService.assignTables(reservationId, request));
     }
+
+    @PatchMapping("/{id}/change-tables")
+    public ResponseEntity<ReservationResponse> changeTables(
+            @PathVariable("id") Long reservationId,
+            @Valid @RequestBody com.swp391.api.modules.reservation.dto.AssignTablesRequest request) {
+        return ResponseEntity.ok(reservationService.changeTables(reservationId, request));
+    }
 }

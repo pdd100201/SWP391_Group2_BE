@@ -1,24 +1,24 @@
 package com.swp391.api.modules.promotion.dto;
 
-import com.swp391.api.modules.promotion.entity.PromotionType;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 public record PromotionResponse(
         Long id,
         String code,
         String name,
-        PromotionType type,
+        String description,
+        String type,
         BigDecimal value,
-        LocalDate startDate,
-        LocalDate endDate,
-        Boolean isActive,
         BigDecimal minOrderAmount,
         BigDecimal maxDiscountAmount,
+        LocalDateTime startDate,
+        LocalDateTime endDate,
         Integer usageLimit,
         Integer usedCount,
-        String description,
+        String status,
+        boolean isActive,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt) {
+        LocalDateTime updatedAt
+) {
 }

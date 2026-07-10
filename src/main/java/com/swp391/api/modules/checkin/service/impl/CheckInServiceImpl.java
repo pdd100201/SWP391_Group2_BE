@@ -31,7 +31,9 @@ public class CheckInServiceImpl implements CheckInService {
     private final TableRepository tableRepository;
     private final OrderRepository orderRepository;
 
-    // Khoi tao service voi cac repository can dung cho luong check-in, ban va order.
+    /**
+     * Khởi tạo service với các repository cần dùng cho luồng check-in, bàn và order.
+     */
     public CheckInServiceImpl(ReservationRepository reservationRepository,
                               TableRepository tableRepository,
                               OrderRepository orderRepository) {
@@ -40,9 +42,13 @@ public class CheckInServiceImpl implements CheckInService {
         this.orderRepository = orderRepository;
     }
 
+    /**
+     * Lấy danh sách đặt bàn có thể check-in trong ngày.
+     *
+     * <p>Có thể lọc theo từ khóa tìm kiếm, ví dụ tên hoặc số điện thoại khách hàng.</p>
+     */
     @Override
     @Transactional(readOnly = true)
-    // Lay danh sach dat ban co the check-in trong ngay, co the loc theo tu khoa tim kiem.
     public List<ReservationResponse> getCheckInReservations(LocalDate date, String search) {
         if (date == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservation date is required");
@@ -54,9 +60,14 @@ public class CheckInServiceImpl implements CheckInService {
                 .toList();
     }
 
+    /**
+     * Xử lý check-in cho khách đã đặt bàn.
+     *
+     * <p>Luồng xử lý gồm kiểm tra reservation, kiểm tra bàn, gán bàn cho reservation
+     * và chuyển trạng thái reservation sang ARRIVED.</p>
+     */
     @Override
     @Transactional
-    // Xu ly check-in: kiem tra reservation, kiem tra ban, gan ban va chuyen trang thai sang ARRIVED.
     public ReservationResponse processCheckInTransaction(CheckInRequest request) {
         Reservation reservation = reservationRepository.findById(request.getReservationId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
@@ -77,6 +88,7 @@ public class CheckInServiceImpl implements CheckInService {
 
         boolean tableReservedForThisReservation = table.getStatus() == RestaurantTable.TableStatus.RESERVED
                 && isTableLinkedToReservation(reservation, table);
+        // Chỉ cho phép dùng bàn AVAILABLE hoặc bàn RESERVED đang được giữ cho chính reservation này.
         if (table.getStatus() != RestaurantTable.TableStatus.AVAILABLE && !tableReservedForThisReservation) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Table is not available");
         }
@@ -92,25 +104,35 @@ public class CheckInServiceImpl implements CheckInService {
         return toResponse(reservationRepository.save(reservation));
     }
 
+    /**
+     * Lấy thông tin khách đang dùng bàn đã check-in theo tableId,
+     * kèm order đang liên kết nếu có.
+     */
     @Override
     @Transactional(readOnly = true)
-    // Lay thong tin khach dang dung ban da check-in theo tableId, kem order dang lien ket neu co.
     public ActiveGuestResponse getActiveGuestByTable(Long tableId) {
         return reservationRepository.findActiveReservationByTableId(tableId)
                 .map(this::toActiveGuestResponse)
                 .orElse(null);
     }
 
+    /**
+     * Lấy thông tin khách đã được giữ bàn nhưng chưa check-in theo tableId.
+     */
     @Override
     @Transactional(readOnly = true)
-    // Lay thong tin khach da duoc giu ban nhung chua check-in theo tableId.
     public ActiveGuestResponse getReservedGuestByTable(Long tableId) {
         return reservationRepository.findReservedReservationByTableId(tableId)
                 .map(this::toReservedGuestResponse)
                 .orElse(null);
     }
 
-    // Kiem tra ban da duoc lien ket voi reservation qua tableId chinh hoac danh sach tables hay chua.
+    /**
+     * Kiểm tra bàn đã được liên kết với reservation hay chưa.
+     *
+     * <p>Hỗ trợ cả trường {@code tableId} chính và danh sách {@code tables}
+     * để tương thích với các luồng dữ liệu hiện có.</p>
+     */
     private boolean isTableLinkedToReservation(Reservation reservation, RestaurantTable table) {
         if (reservation.getTableId() != null && reservation.getTableId().equals(table.getId())) {
             return true;
@@ -120,7 +142,10 @@ public class CheckInServiceImpl implements CheckInService {
                 && reservation.getTables().stream().anyMatch(currentTable -> currentTable.getId().equals(table.getId()));
     }
 
-    // Chuyen reservation da check-in thanh response cho active guest va bo sung thong tin order neu ton tai.
+    /**
+     * Chuyển reservation đã check-in thành response cho active guest
+     * và bổ sung thông tin order nếu tồn tại.
+     */
     private ActiveGuestResponse toActiveGuestResponse(Reservation reservation) {
         ActiveGuestResponse response = baseGuestResponse(reservation);
         Optional<RestaurantOrder> orderOpt =
@@ -135,14 +160,19 @@ public class CheckInServiceImpl implements CheckInService {
         return response;
     }
 
-    // Chuyen reservation dang reserved thanh response cho guest dang giu ban.
+    /**
+     * Chuyển reservation đang RESERVED thành response cho khách đang được giữ bàn.
+     */
     private ActiveGuestResponse toReservedGuestResponse(Reservation reservation) {
         ActiveGuestResponse response = baseGuestResponse(reservation);
         response.setOrderCode("RES-" + reservation.getReservationId());
         return response;
     }
 
-    // Tao response co cac thong tin khach chung duoc dung lai cho active guest va reserved guest.
+    /**
+     * Tạo response chứa các thông tin khách chung,
+     * được dùng lại cho cả active guest và reserved guest.
+     */
     private ActiveGuestResponse baseGuestResponse(Reservation reservation) {
         ActiveGuestResponse response = new ActiveGuestResponse();
         response.setReservationId(reservation.getReservationId());
@@ -153,9 +183,12 @@ public class CheckInServiceImpl implements CheckInService {
         return response;
     }
 
-    // Chuyen entity Reservation thanh DTO ReservationResponse de tra ve cho controller.
+    /**
+     * Chuyển entity {@link Reservation} thành DTO {@link ReservationResponse}
+     * để trả về cho controller.
+     */
     private ReservationResponse toResponse(Reservation reservation) {
-        return new ReservationResponse(
+        ReservationResponse response = new ReservationResponse(
                 reservation.getReservationId(),
                 reservation.getCustomerId(),
                 reservation.getTableId(),
@@ -170,5 +203,19 @@ public class CheckInServiceImpl implements CheckInService {
                 reservation.getCreatedAt(),
                 reservation.getUpdatedAt()
         );
+        response.setTableIds(resolveTableIds(reservation));
+        return response;
+    }
+
+    private List<Long> resolveTableIds(Reservation reservation) {
+        List<RestaurantTable> tables = reservation.getTables();
+        if (tables != null && !tables.isEmpty()) {
+            return tables.stream()
+                    .map(RestaurantTable::getId)
+                    .toList();
+        }
+
+        Long tableId = reservation.getTableId();
+        return tableId == null ? List.of() : List.of(tableId);
     }
 }
