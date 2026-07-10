@@ -12,4 +12,5 @@ public interface ReservationService {
     ReservationResponse cancelReservation(Long reservationId);
     ReservationResponse confirmReservation(Long reservationId);
     ReservationResponse assignTables(Long reservationId, AssignTablesRequest request);
+    ReservationResponse changeTables(Long reservationId, AssignTablesRequest request);
 }

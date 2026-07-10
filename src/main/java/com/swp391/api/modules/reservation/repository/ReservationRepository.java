@@ -42,6 +42,41 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     // 5. Lấy danh sách các đơn sắp đến trong khoảng giờ, kèm theo luôn thông tin họ ngồi bàn nào (để hiện lên màn hình sơ đồ bàn).
     @Query("""
+            SELECT r
+            FROM Reservation r
+            WHERE r.status = com.swp391.api.modules.reservation.entity.ReservationStatus.CONFIRMED
+              AND (
+                r.reservationDate > :fromDate
+                OR (r.reservationDate = :fromDate AND r.reservationTime >= :fromTime)
+              )
+              AND (
+                r.reservationDate < :toDate
+                OR (r.reservationDate = :toDate AND r.reservationTime <= :toTime)
+              )
+            ORDER BY r.reservationDate ASC, r.reservationTime ASC, r.createdAt ASC
+            """)
+    List<Reservation> findUpcomingConfirmedReservationsBetween(
+            @Param("fromDate") LocalDate fromDate,
+            @Param("fromTime") LocalTime fromTime,
+            @Param("toDate") LocalDate toDate,
+            @Param("toTime") LocalTime toTime);
+
+    @Query("""
+            SELECT DISTINCT r
+            FROM Reservation r
+            LEFT JOIN FETCH r.tables t
+            WHERE r.status = com.swp391.api.modules.reservation.entity.ReservationStatus.CONFIRMED
+              AND (
+                r.reservationDate < :cutoffDate
+                OR (r.reservationDate = :cutoffDate AND r.reservationTime < :cutoffTime)
+              )
+            ORDER BY r.reservationDate ASC, r.reservationTime ASC, r.createdAt ASC
+            """)
+    List<Reservation> findConfirmedNoShowCandidatesWithTablesBefore(
+            @Param("cutoffDate") LocalDate cutoffDate,
+            @Param("cutoffTime") LocalTime cutoffTime);
+
+    @Query("""
             SELECT DISTINCT r
             FROM Reservation r
             LEFT JOIN FETCH r.tables t

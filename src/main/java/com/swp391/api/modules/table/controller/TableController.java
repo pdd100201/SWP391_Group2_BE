@@ -43,7 +43,6 @@ public class TableController {
     }
 
     @GetMapping("/status-now")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
     public ResponseEntity<List<TableResponse>> getTablesStatusNow() {
         return ResponseEntity.ok(tableService.getTablesStatusNow());
     }
