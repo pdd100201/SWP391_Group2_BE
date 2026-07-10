@@ -29,8 +29,8 @@ public class MenuItem extends BaseAuditableEntity {
     @Column(name = "image_url")
     private String imageUrl;
 
-    @Column(name = "profit_margin_percent", nullable = false)
-    private Double profitMarginPercent;
+    @Column(name = "price")
+    private Double price;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
@@ -62,8 +62,8 @@ public class MenuItem extends BaseAuditableEntity {
     public void setDescription(String description) { this.description = description; }
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
-    public Double getProfitMarginPercent() { return profitMarginPercent; }
-    public void setProfitMarginPercent(Double profitMarginPercent) { this.profitMarginPercent = profitMarginPercent; }
+    public Double getPrice() { return price; }
+    public void setPrice(Double price) { this.price = price; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean active) { isActive = active; }
     public List<RecipeIngredient> getRecipeIngredients() { return recipeIngredients; }

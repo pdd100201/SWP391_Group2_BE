@@ -1,6 +1,7 @@
 package com.swp391.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.swp391.api.modules.inventory.entity.InventoryItem;
 import com.swp391.api.modules.inventory.repository.InventoryRepository;
@@ -14,6 +15,8 @@ import com.swp391.api.modules.order.service.OrderService;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import com.swp391.api.modules.reservation.repository.ReservationRepository;
+import com.swp391.api.modules.table.entity.RestaurantTable;
+import com.swp391.api.modules.table.repository.TableRepository;
 import com.swp391.api.modules.user.entity.Customer;
 import com.swp391.api.modules.user.repository.CustomerRepository;
 import java.time.LocalDate;
@@ -35,6 +38,7 @@ class OrderFlowTests {
     @Autowired private MenuService menuService;
     @Autowired private InventoryRepository inventoryRepository;
     @Autowired private ReservationRepository reservationRepository;
+    @Autowired private TableRepository tableRepository;
     @Autowired private CustomerRepository customerRepository;
 
     @BeforeEach
@@ -54,14 +58,12 @@ class OrderFlowTests {
     @Test
     void submitDeductsInventoryAndCancellingConfirmedItemRestoresIt() {
         MenuItemResponse dish = menuService.getAll().stream()
-                .filter(item -> Boolean.TRUE.equals(item.getCostComplete()))
-                .filter(item -> item.getIngredients().stream().allMatch(ingredient ->
-                        Boolean.TRUE.equals(ingredient.getInventoryActive())
-                                && ingredient.getAvailableQuantity() >= ingredient.getRequiredQuantity() * 2))
+                .filter(item -> item.getName().equals("Fresh Garden Salad"))
                 .findFirst()
                 .orElseThrow();
-        Long inventoryId = dish.getIngredients().get(0).getInventoryItemId();
-        double quantityBefore = inventoryRepository.findById(inventoryId).orElseThrow().getQuantity();
+        InventoryItem lettuce = inventoryRepository.findByItemNameIgnoreCase("Lettuce").orElseThrow();
+        Long inventoryId = lettuce.getId();
+        double quantityBefore = lettuce.getQuantity();
 
         Customer customer = new Customer();
         customer.setCustomersEmail("order-flow-test-" + System.nanoTime() + "@example.com");
@@ -69,6 +71,11 @@ class OrderFlowTests {
         customer.setPassword("test-password");
         customer.setPhone("0900000000");
         customer = customerRepository.save(customer);
+
+        RestaurantTable table = tableRepository.findAvailableActiveTablesOrderByCapacityAsc().stream()
+                .filter(candidate -> candidate.getCapacity() >= 2)
+                .findFirst()
+                .orElseThrow();
 
         Reservation reservation = new Reservation();
         reservation.setCustomerId(customer.getCustomerId());
@@ -79,6 +86,7 @@ class OrderFlowTests {
         reservation.setReservationTime(LocalTime.now());
         reservation.setNumberOfGuests(2);
         reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservation.setTableId(table.getId());
         reservation = reservationRepository.save(reservation);
 
         CreateOrderRequest create = new CreateOrderRequest();
@@ -92,7 +100,8 @@ class OrderFlowTests {
         order = orderService.submit(order.id());
 
         assertEquals(OrderItemStatus.CONFIRMED, order.items().get(0).status());
-        double expectedDeduction = dish.getIngredients().get(0).getRequiredQuantity() * 2;
+        assertTrue(order.items().get(0).unitPrice().compareTo(java.math.BigDecimal.valueOf(dish.getPrice())) == 0);
+        double expectedDeduction = 0.15 * 2;
         InventoryItem afterSubmit = inventoryRepository.findById(inventoryId).orElseThrow();
         assertEquals(quantityBefore - expectedDeduction, afterSubmit.getQuantity(), 0.000001);
 

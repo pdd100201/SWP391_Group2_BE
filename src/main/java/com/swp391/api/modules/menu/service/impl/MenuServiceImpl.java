@@ -18,9 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 @Service
 @Transactional
@@ -185,61 +183,11 @@ public class MenuServiceImpl implements MenuService {
     }
 
     private void applyRequest(MenuItem item, MenuItemRequest request) {
-        Set<Long> inventoryIds = new HashSet<>();
-        List<IngredientDefinition> definitions = new ArrayList<>();
-
-        for (RecipeIngredientRequest ingredientRequest : request.getIngredients()) {
-            if (!inventoryIds.add(ingredientRequest.getInventoryItemId())) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Recipe contains duplicate ingredients");
-            }
-
-            InventoryItem inventory = inventoryRepository.findById(ingredientRequest.getInventoryItemId())
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.BAD_REQUEST,
-                            "Inventory item not found: " + ingredientRequest.getInventoryItemId()
-                    ));
-
-            definitions.add(new IngredientDefinition(inventory, ingredientRequest.getRequiredQuantity()));
-        }
-
         item.setName(request.getName().trim());
         item.setMenuCategory(resolveCategory(request));
         item.setDescription(normalizeNullable(request.getDescription()));
         item.setImageUrl(normalizeNullable(request.getImageUrl()));
-        item.setProfitMarginPercent(request.getProfitMarginPercent());
-
-        if (item.getId() == null) {
-            List<RecipeIngredient> recipe = definitions.stream().map(definition -> {
-                RecipeIngredient ingredient = new RecipeIngredient();
-                ingredient.setInventoryItem(definition.inventory());
-                ingredient.setRequiredQuantity(definition.quantity());
-                return ingredient;
-            }).toList();
-            item.replaceRecipe(recipe);
-            return;
-        }
-
-        item.getRecipeIngredients().removeIf(existing ->
-                !inventoryIds.contains(existing.getInventoryItem().getId())
-        );
-        for (IngredientDefinition definition : definitions) {
-            RecipeIngredient existing = item.getRecipeIngredients().stream()
-                    .filter(ingredient ->
-                            ingredient.getInventoryItem().getId().equals(definition.inventory().getId())
-                    )
-                    .findFirst()
-                    .orElse(null);
-
-            if (existing != null) {
-                existing.setRequiredQuantity(definition.quantity());
-            } else {
-                RecipeIngredient ingredient = new RecipeIngredient();
-                ingredient.setMenuItem(item);
-                ingredient.setInventoryItem(definition.inventory());
-                ingredient.setRequiredQuantity(definition.quantity());
-                item.getRecipeIngredients().add(ingredient);
-            }
-        }
+        item.setPrice(request.getPrice());
     }
 
     private MenuItemResponse toResponse(MenuItem item) {
@@ -250,75 +198,12 @@ public class MenuServiceImpl implements MenuService {
         response.setCategoryId(item.getMenuCategory() == null ? null : item.getMenuCategory().getId());
         response.setDescription(item.getDescription());
         response.setImageUrl(item.getImageUrl());
-        response.setProfitMarginPercent(item.getProfitMarginPercent());
+        response.setPrice(item.getPrice() == null ? 0.0 : item.getPrice());
         response.setIsActive(item.getIsActive());
         response.setCreatedAt(item.getCreatedAt());
         response.setUpdatedAt(item.getUpdatedAt());
 
-        double foodCost = 0.0;
-        boolean costComplete = true;
-        int availableServings = Integer.MAX_VALUE;
-        boolean lowStock = false;
-        List<String> blocking = new ArrayList<>();
-        List<RecipeIngredientResponse> ingredients = new ArrayList<>();
-
-        for (RecipeIngredient recipeIngredient : item.getRecipeIngredients()) {
-            InventoryItem inventory = recipeIngredient.getInventoryItem();
-            double available = Math.max(0.0, inventory.getQuantity() - inventory.getReservedQuantity());
-            int servings = (int) Math.floor((available + EPSILON) / recipeIngredient.getRequiredQuantity());
-            availableServings = Math.min(availableServings, servings);
-
-            if (!Boolean.TRUE.equals(inventory.getIsActive()) || servings <= 0) {
-                blocking.add(inventory.getItemName());
-            }
-            if (available <= inventory.getMinimumQuantity() || servings <= 5) {
-                lowStock = true;
-            }
-
-            Double price = inventory.getPricePerUnit();
-            if (price == null) costComplete = false;
-            double ingredientCost = price == null ? 0.0 : price * recipeIngredient.getRequiredQuantity();
-            foodCost += ingredientCost;
-
-            RecipeIngredientResponse ingredientResponse = new RecipeIngredientResponse();
-            ingredientResponse.setInventoryItemId(inventory.getId());
-            ingredientResponse.setInventoryItemName(inventory.getItemName());
-            ingredientResponse.setUnit(inventory.getUnit());
-            ingredientResponse.setRequiredQuantity(recipeIngredient.getRequiredQuantity());
-            ingredientResponse.setInventoryQuantity(inventory.getQuantity());
-            ingredientResponse.setReservedQuantity(inventory.getReservedQuantity());
-            ingredientResponse.setAvailableQuantity(available);
-            ingredientResponse.setPricePerUnit(price);
-            ingredientResponse.setIngredientCost(ingredientCost);
-            ingredientResponse.setInventoryActive(inventory.getIsActive());
-            ingredients.add(ingredientResponse);
-        }
-
-        if (item.getRecipeIngredients().isEmpty()) {
-            availableServings = 0;
-            blocking.add("Recipe is empty");
-        }
-
-        String availability;
-        if (!Boolean.TRUE.equals(item.getIsActive())) {
-            availability = "INACTIVE";
-        } else if (!blocking.isEmpty()) {
-            availability = "OUT_OF_STOCK";
-        } else if (lowStock) {
-            availability = "LIMITED";
-        } else {
-            availability = "AVAILABLE";
-        }
-
-        double rawSuggestedPrice = foodCost * (1 + item.getProfitMarginPercent() / 100.0);
-        double suggestedPrice = Math.ceil(rawSuggestedPrice / 1000.0) * 1000.0;
-        response.setFoodCost(foodCost);
-        response.setSuggestedPrice(suggestedPrice);
-        response.setCostComplete(costComplete);
-        response.setAvailability(availability);
-        response.setAvailableServings(Math.max(0, availableServings));
-        response.setBlockingIngredients(blocking);
-        response.setIngredients(ingredients);
+        response.setAvailability(Boolean.TRUE.equals(item.getIsActive()) ? "AVAILABLE" : "INACTIVE");
         return response;
     }
 
@@ -375,5 +260,4 @@ public class MenuServiceImpl implements MenuService {
     }
 
     private record LockedRequirement(InventoryItem inventory, double quantity) {}
-    private record IngredientDefinition(InventoryItem inventory, double quantity) {}
 }

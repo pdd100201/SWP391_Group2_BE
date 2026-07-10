@@ -156,7 +156,6 @@ public class OrderService {
         requireOpen(order);
         return menuService.getAll().stream()
                 .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
-                .filter(item -> Boolean.TRUE.equals(item.getCostComplete()))
                 .filter(item -> "AVAILABLE".equals(item.getAvailability()) || "LIMITED".equals(item.getAvailability()))
                 .toList();
     }
@@ -178,7 +177,7 @@ public class OrderService {
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(calculateSuggestedPrice(menuItem));
+        item.setUnitPrice(getMenuPrice(menuItem));
         item.setQuantity(request.getQuantity());
         updateSubtotal(item);
         item.setNote(normalize(request.getNote()));
@@ -369,11 +368,6 @@ public class OrderService {
         List<RecipeIngredient> recipe = menuItem.getRecipeIngredients().stream()
                 .sorted(Comparator.comparing(ingredient -> ingredient.getInventoryItem().getId()))
                 .toList();
-        if (recipe.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, menuItem.getName() + " has no recipe");
-        }
-
-        BigDecimal foodCost = BigDecimal.ZERO;
         for (RecipeIngredient recipeIngredient : recipe) {
             InventoryItem inventory = lockInventory(recipeIngredient.getInventoryItem().getId());
             double required = recipeIngredient.getRequiredQuantity() * item.getQuantity();
@@ -382,13 +376,7 @@ public class OrderService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "Not enough available inventory for " + inventory.getItemName());
             }
-            if (inventory.getPricePerUnit() == null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Inventory price is missing for " + inventory.getItemName());
-            }
             inventory.setQuantity(inventory.getQuantity() - required);
-            foodCost = foodCost.add(BigDecimal.valueOf(inventory.getPricePerUnit())
-                    .multiply(BigDecimal.valueOf(recipeIngredient.getRequiredQuantity())));
 
             OrderItemIngredient snapshot = new OrderItemIngredient();
             snapshot.setInventoryItem(inventory);
@@ -401,7 +389,7 @@ public class OrderService {
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(applyMargin(foodCost, menuItem.getProfitMarginPercent()));
+        item.setUnitPrice(getMenuPrice(menuItem));
         updateSubtotal(item);
         item.setStatus(OrderItemStatus.CONFIRMED);
         item.setSubmittedAt(LocalDateTime.now());
@@ -441,28 +429,11 @@ public class OrderService {
         }
     }
 
-    private BigDecimal calculateSuggestedPrice(MenuItem item) {
-        BigDecimal cost = BigDecimal.ZERO;
-        if (item.getRecipeIngredients().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish has no recipe");
+    private BigDecimal getMenuPrice(MenuItem item) {
+        if (item.getPrice() == null || item.getPrice() <= 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish price is not available");
         }
-        for (RecipeIngredient ingredient : item.getRecipeIngredients()) {
-            Double price = ingredient.getInventoryItem().getPricePerUnit();
-            if (price == null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish price is not available");
-            }
-            cost = cost.add(BigDecimal.valueOf(price)
-                    .multiply(BigDecimal.valueOf(ingredient.getRequiredQuantity())));
-        }
-        return applyMargin(cost, item.getProfitMarginPercent());
-    }
-
-    private BigDecimal applyMargin(BigDecimal cost, Double marginPercent) {
-        BigDecimal multiplier = BigDecimal.ONE.add(
-                BigDecimal.valueOf(marginPercent).divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP));
-        BigDecimal raw = cost.multiply(multiplier);
-        return raw.divide(BigDecimal.valueOf(1000), 0, RoundingMode.CEILING)
-                .multiply(BigDecimal.valueOf(1000)).setScale(2);
+        return BigDecimal.valueOf(item.getPrice()).setScale(2, RoundingMode.HALF_UP);
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {

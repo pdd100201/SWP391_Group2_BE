@@ -17,7 +17,6 @@ public class QrServiceImpl implements QrService {
 
     private final QrSessionRepository sessionRepository;
     private final QrMenuItemRepository menuItemRepository;
-    private final QrRecipeIngredientRepository recipeIngredientRepository;
     private final MenuItemRepository menuModuleItemRepository;
     private final QrOrderRepository orderRepository;
     private final QrOrderItemRepository orderItemRepository;
@@ -25,13 +24,11 @@ public class QrServiceImpl implements QrService {
     public QrServiceImpl(
             QrSessionRepository sessionRepository,
             QrMenuItemRepository menuItemRepository,
-            QrRecipeIngredientRepository recipeIngredientRepository,
             MenuItemRepository menuModuleItemRepository,
             QrOrderRepository orderRepository,
             QrOrderItemRepository orderItemRepository) {
         this.sessionRepository = sessionRepository;
         this.menuItemRepository = menuItemRepository;
-        this.recipeIngredientRepository = recipeIngredientRepository;
         this.menuModuleItemRepository = menuModuleItemRepository;
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
@@ -62,27 +59,6 @@ public class QrServiceImpl implements QrService {
     public QrMenuResponse getMenu() {
         List<QrMenuItem> activeItems = menuItemRepository.findByIsActive(true);
 
-        // Tính foodCost cho tất cả món trong một query
-        Set<Long> itemIds = activeItems.stream()
-                .map(QrMenuItem::getId)
-                .collect(Collectors.toSet());
-
-        Map<Long, Double> foodCostMap = recipeIngredientRepository
-                .findFoodCostsByMenuItemIds(itemIds)
-                .stream()
-                .collect(Collectors.toMap(
-                        row -> ((Number) row[0]).longValue(),
-                        row -> row[1] != null ? ((Number) row[1]).doubleValue() : 0.0
-                ));
-
-        Map<Long, Integer> canServeMap = recipeIngredientRepository
-                .findCanServeByMenuItemIds(itemIds)
-                .stream()
-                .collect(Collectors.toMap(
-                        row -> ((Number) row[0]).longValue(),
-                        row -> row[1] != null ? ((Number) row[1]).intValue() : 0
-                ));
-
         Map<String, List<QrMenuItem>> itemsByCategory = activeItems.stream()
                 .collect(Collectors.groupingBy(QrMenuItem::getCategory));
 
@@ -94,10 +70,10 @@ public class QrServiceImpl implements QrService {
                             .map(item -> new QrMenuResponse.ItemDto(
                                     item.getId(),
                                     item.getName(),
-                                    computePrice(item, foodCostMap.getOrDefault(item.getId(), 0.0)),
+                                    item.getPrice(),
                                     item.getImageUrl(),
                                     item.getDescription(),
-                                    canServeMap.getOrDefault(item.getId(), 99)
+                                    99
                             ))
                             .collect(Collectors.toList());
 
@@ -136,8 +112,7 @@ public class QrServiceImpl implements QrService {
             QrMenuItem menuItem = menuItemRepository.findById(itemDto.getItemId())
                     .orElseThrow(() -> new RuntimeException("Menu item not found: " + itemDto.getItemId()));
 
-            Double foodCost = recipeIngredientRepository.findFoodCostByMenuItemId(menuItem.getId());
-            double unitPrice = computePrice(menuItem, foodCost != null ? foodCost : 0.0);
+            double unitPrice = menuItem.getPrice() == null ? 0.0 : menuItem.getPrice();
             double subtotal = unitPrice * itemDto.getQuantity();
 
             QrOrderItem orderItem = new QrOrderItem();
@@ -168,13 +143,6 @@ public class QrServiceImpl implements QrService {
                 .sum();
 
         return buildOrderResponse(order, items, totalAmount);
-    }
-
-    // suggestedPrice = ceil(foodCost * (1 + margin/100) / 1000) * 1000
-    private double computePrice(QrMenuItem item, double foodCost) {
-        double margin = item.getProfitMarginPercent() == null ? 0.0 : item.getProfitMarginPercent().doubleValue();
-        double raw = foodCost * (1.0 + margin / 100.0);
-        return Math.ceil(raw / 1000.0) * 1000.0;
     }
 
     private QrOrderResponse buildOrderResponse(QrOrder order, List<QrOrderItem> items, double totalAmount) {
