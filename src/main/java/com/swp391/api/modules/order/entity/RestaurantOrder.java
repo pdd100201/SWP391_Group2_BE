@@ -1,6 +1,7 @@
 package com.swp391.api.modules.order.entity;
 
 import com.swp391.api.modules.reservation.entity.Reservation;
+import com.swp391.api.modules.promotion.entity.Promotion;
 import com.swp391.api.modules.user.entity.BaseAuditableEntity;
 import com.swp391.api.modules.user.entity.User;
 import jakarta.persistence.CascadeType;
@@ -20,6 +21,7 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -53,6 +55,13 @@ public class RestaurantOrder extends BaseAuditableEntity {
     @Column(columnDefinition = "TEXT")
     private String note;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "promotion_id")
+    private Promotion promotion;
+
+    @Column(name = "discount_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
     @Column(name = "closed_at")
     private LocalDateTime closedAt;
 
@@ -81,6 +90,10 @@ public class RestaurantOrder extends BaseAuditableEntity {
     public void setStatus(OrderStatus status) { this.status = status; }
     public String getNote() { return note; }
     public void setNote(String note) { this.note = note; }
+    public Promotion getPromotion() { return promotion; }
+    public void setPromotion(Promotion promotion) { this.promotion = promotion; }
+    public BigDecimal getDiscountAmount() { return discountAmount; }
+    public void setDiscountAmount(BigDecimal discountAmount) { this.discountAmount = discountAmount; }
     public LocalDateTime getClosedAt() { return closedAt; }
     public void setClosedAt(LocalDateTime closedAt) { this.closedAt = closedAt; }
     public Long getVersion() { return version; }

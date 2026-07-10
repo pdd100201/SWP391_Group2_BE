@@ -5,12 +5,15 @@ import com.swp391.api.modules.order.entity.OrderStatus;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ReservationResponse {
 
     private Long reservationId;
     private Long customerId;
     private Long tableId;
+    private List<Long> tableIds = new ArrayList<>();
     private String fullName;
     private String phone;
     private String email;
@@ -78,6 +81,14 @@ public class ReservationResponse {
 
     public void setTableId(Long tableId) {
         this.tableId = tableId;
+    }
+
+    public List<Long> getTableIds() {
+        return tableIds;
+    }
+
+    public void setTableIds(List<Long> tableIds) {
+        this.tableIds = tableIds;
     }
 
     public String getFullName() {

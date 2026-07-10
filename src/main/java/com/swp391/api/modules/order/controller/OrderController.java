@@ -1,6 +1,7 @@
 package com.swp391.api.modules.order.controller;
 
 import com.swp391.api.modules.order.dto.AddOrderItemRequest;
+import com.swp391.api.modules.order.dto.ApplyPromotionRequest;
 import com.swp391.api.modules.order.dto.CreateOrderRequest;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.dto.UpdateOrderItemRequest;
@@ -93,6 +94,18 @@ public class OrderController {
     @PatchMapping("/{orderId}/close")
     public ResponseEntity<OrderResponse> close(@PathVariable Long orderId) {
         return ResponseEntity.ok(orderService.close(orderId));
+    }
+
+    @PatchMapping("/{orderId}/promotion")
+    public ResponseEntity<OrderResponse> applyPromotion(
+            @PathVariable Long orderId,
+            @Valid @RequestBody ApplyPromotionRequest request) {
+        return ResponseEntity.ok(orderService.applyPromotion(orderId, request.getCode()));
+    }
+
+    @DeleteMapping("/{orderId}/promotion")
+    public ResponseEntity<OrderResponse> removePromotion(@PathVariable Long orderId) {
+        return ResponseEntity.ok(orderService.removePromotion(orderId));
     }
 
     @PatchMapping("/{orderId}/cancel")

@@ -6,8 +6,7 @@ import com.swp391.api.modules.reservation.repository.ReservationRepository;
 import com.swp391.api.modules.reservation.service.ReservationNoShowService;
 import com.swp391.api.modules.table.entity.RestaurantTable;
 import com.swp391.api.modules.table.repository.TableRepository;
-import java.time.LocalDate;
-import java.time.LocalTime;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,10 +28,10 @@ public class ReservationNoShowServiceImpl implements ReservationNoShowService {
     @Override
     @Transactional
     public void markNoShowsAndReleaseTables() {
-        LocalTime cutoffTime = LocalTime.now().minusMinutes(NO_SHOW_GRACE_MINUTES);
-        List<Reservation> reservations = reservationRepository.findConfirmedNoShowCandidatesWithTables(
-                LocalDate.now(),
-                cutoffTime
+        LocalDateTime cutoffDateTime = LocalDateTime.now().minusMinutes(NO_SHOW_GRACE_MINUTES);
+        List<Reservation> reservations = reservationRepository.findConfirmedNoShowCandidatesWithTablesBefore(
+                cutoffDateTime.toLocalDate(),
+                cutoffDateTime.toLocalTime()
         );
 
         for (Reservation reservation : reservations) {
@@ -44,8 +43,14 @@ public class ReservationNoShowServiceImpl implements ReservationNoShowService {
     }
 
     private void releaseReservedTables(Reservation reservation) {
-        List<RestaurantTable> tables = reservation.getTables();
-        if (tables == null || tables.isEmpty()) {
+        List<RestaurantTable> tables = new java.util.ArrayList<>();
+        if (reservation.getTables() != null) {
+            tables.addAll(reservation.getTables());
+        }
+        if (tables.isEmpty() && reservation.getTableId() != null) {
+            tableRepository.findById(reservation.getTableId()).ifPresent(tables::add);
+        }
+        if (tables.isEmpty()) {
             return;
         }
 

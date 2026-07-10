@@ -14,6 +14,10 @@ import com.swp391.api.modules.order.entity.OrderItemStatus;
 import com.swp391.api.modules.order.entity.OrderStatus;
 import com.swp391.api.modules.order.entity.RestaurantOrder;
 import com.swp391.api.modules.order.repository.OrderRepository;
+import com.swp391.api.modules.promotion.entity.DiscountType;
+import com.swp391.api.modules.promotion.entity.Promotion;
+import com.swp391.api.modules.promotion.entity.PromotionStatus;
+import com.swp391.api.modules.promotion.repository.PromotionRepository;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import com.swp391.api.modules.reservation.repository.ReservationRepository;
@@ -51,6 +55,7 @@ public class OrderService {
     private final MenuItemRepository menuItemRepository;
     private final UserRepository userRepository;
     private final MenuService menuService;
+    private final PromotionRepository promotionRepository;
 
     public OrderService(
             OrderRepository orderRepository,
@@ -58,13 +63,15 @@ public class OrderService {
             TableRepository tableRepository,
             MenuItemRepository menuItemRepository,
             UserRepository userRepository,
-            MenuService menuService) {
+            MenuService menuService,
+            PromotionRepository promotionRepository) {
         this.orderRepository = orderRepository;
         this.reservationRepository = reservationRepository;
         this.tableRepository = tableRepository;
         this.menuItemRepository = menuItemRepository;
         this.userRepository = userRepository;
         this.menuService = menuService;
+        this.promotionRepository = promotionRepository;
     }
 
     public OrderResponse create(CreateOrderRequest request) {
@@ -312,10 +319,47 @@ public class OrderService {
         if (!hasServedItem || hasUnfinishedItem) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "All non-cancelled items must be served before closing");
         }
+        refreshDiscount(order);
         order.setStatus(OrderStatus.CLOSED);
         order.setClosedAt(LocalDateTime.now());
         order.getReservation().setStatus(ReservationStatus.COMPLETED);
         updateAssignedTableStatus(order.getReservation(), RestaurantTable.TableStatus.CLEANING);
+        return toResponse(orderRepository.save(order));
+    }
+
+    public OrderResponse applyPromotion(Long orderId, String code) {
+        RestaurantOrder order = findOrderForUpdate(orderId);
+        requireOpen(order);
+        BigDecimal subtotal = calculateSubtotal(order);
+        if (subtotal.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Add order items before applying a promotion");
+        }
+
+        Promotion promotion = promotionRepository.findByCodeIgnoreCase(code == null ? "" : code.trim())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Promotion code not found"));
+        validatePromotion(promotion, subtotal, order.getPromotion());
+
+        Promotion currentPromotion = order.getPromotion();
+        if (currentPromotion != null && !currentPromotion.getId().equals(promotion.getId())) {
+            decrementUsedCount(currentPromotion);
+        }
+        if (currentPromotion == null || !currentPromotion.getId().equals(promotion.getId())) {
+            promotion.setUsedCount((promotion.getUsedCount() == null ? 0 : promotion.getUsedCount()) + 1);
+        }
+
+        order.setPromotion(promotion);
+        order.setDiscountAmount(calculateDiscount(promotion, subtotal));
+        return toResponse(orderRepository.save(order));
+    }
+
+    public OrderResponse removePromotion(Long orderId) {
+        RestaurantOrder order = findOrderForUpdate(orderId);
+        requireOpen(order);
+        if (order.getPromotion() != null) {
+            decrementUsedCount(order.getPromotion());
+        }
+        order.setPromotion(null);
+        order.setDiscountAmount(BigDecimal.ZERO);
         return toResponse(orderRepository.save(order));
     }
 
@@ -334,6 +378,11 @@ public class OrderService {
             if (item.getStatus() == OrderItemStatus.CONFIRMED) restoreInventory(item);
             item.setStatus(OrderItemStatus.CANCELLED);
         });
+        if (order.getPromotion() != null) {
+            decrementUsedCount(order.getPromotion());
+            order.setPromotion(null);
+            order.setDiscountAmount(BigDecimal.ZERO);
+        }
         order.setStatus(OrderStatus.CANCELLED);
         order.setClosedAt(LocalDateTime.now());
         order.getReservation().setStatus(ReservationStatus.CANCELLED);
@@ -368,12 +417,18 @@ public class OrderService {
     private OrderResponse toResponse(RestaurantOrder order) {
         // Dùng một dạng dữ liệu trả về thống nhất cho giao diện nhân viên và giao diện công khai.
         List<OrderItemResponse> items = order.getItems().stream().map(this::toItemResponse).toList();
-        BigDecimal total = items.stream()
+        BigDecimal subtotal = items.stream()
                 .filter(item -> item.status() != OrderItemStatus.CANCELLED)
                 .map(OrderItemResponse::lineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal discountAmount = order.getPromotion() == null
+                ? BigDecimal.ZERO
+                : calculateDiscount(order.getPromotion(), subtotal);
+        BigDecimal total = subtotal.subtract(discountAmount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         Reservation reservation = order.getReservation();
         RestaurantTable table = findAssignedTable(reservation);
+        List<RestaurantTable> assignedTables = findAssignedTables(reservation);
+        Promotion promotion = order.getPromotion();
         return new OrderResponse(
                 order.getId(),
                 order.getOrderCode(),
@@ -381,8 +436,11 @@ public class OrderService {
                 reservation.getFullName(),
                 reservation.getStatus(),
                 reservation.getTableId(),
+                assignedTables.stream().map(RestaurantTable::getId).toList(),
                 table == null ? null : table.getTableNumber(),
+                assignedTables.stream().map(RestaurantTable::getTableNumber).toList(),
                 table == null ? null : table.getTableName(),
+                assignedTables.stream().map(RestaurantTable::getTableName).toList(),
                 table == null || table.getStatus() == null ? null : table.getStatus().name(),
                 order.getWaiter().getUserId(),
                 order.getWaiter().getFullName(),
@@ -391,6 +449,11 @@ public class OrderService {
                 order.getStatus(),
                 serviceStatus(order),
                 order.getNote(),
+                promotion == null ? null : promotion.getId(),
+                promotion == null ? null : promotion.getCode(),
+                promotion == null ? null : promotion.getPromotionName(),
+                subtotal.setScale(2, RoundingMode.HALF_UP),
+                discountAmount,
                 total,
                 items,
                 order.getClosedAt(),
@@ -398,10 +461,87 @@ public class OrderService {
                 order.getUpdatedAt());
     }
 
+    private BigDecimal calculateSubtotal(RestaurantOrder order) {
+        return order.getItems().stream()
+                .filter(item -> item.getStatus() != OrderItemStatus.CANCELLED)
+                .map(OrderItem::getSubtotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal calculateDiscount(Promotion promotion, BigDecimal subtotal) {
+        if (promotion == null || subtotal.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal discount = promotion.getDiscountType() == DiscountType.PERCENT
+                ? subtotal.multiply(promotion.getDiscountValue()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
+                : promotion.getDiscountValue();
+
+        if (promotion.getMaxDiscountAmount() != null && discount.compareTo(promotion.getMaxDiscountAmount()) > 0) {
+            discount = promotion.getMaxDiscountAmount();
+        }
+        if (discount.compareTo(subtotal) > 0) {
+            discount = subtotal;
+        }
+        return discount.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private void validatePromotion(Promotion promotion, BigDecimal subtotal, Promotion currentPromotion) {
+        if (promotion.getStatus() != PromotionStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is inactive");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isBefore(promotion.getStartDate()) || now.isAfter(promotion.getEndDate())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is outside its valid period");
+        }
+        if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Order total does not meet the minimum bill amount");
+        }
+        boolean samePromotion = currentPromotion != null && currentPromotion.getId().equals(promotion.getId());
+        if (!samePromotion && promotion.getUsageLimit() != null
+                && (promotion.getUsedCount() == null ? 0 : promotion.getUsedCount()) >= promotion.getUsageLimit()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion usage limit has been reached");
+        }
+    }
+
+    private void refreshDiscount(RestaurantOrder order) {
+        if (order.getPromotion() == null) {
+            order.setDiscountAmount(BigDecimal.ZERO);
+            return;
+        }
+        BigDecimal subtotal = calculateSubtotal(order);
+        validatePromotion(order.getPromotion(), subtotal, order.getPromotion());
+        order.setDiscountAmount(calculateDiscount(order.getPromotion(), subtotal));
+    }
+
+    private void decrementUsedCount(Promotion promotion) {
+        int usedCount = promotion.getUsedCount() == null ? 0 : promotion.getUsedCount();
+        promotion.setUsedCount(Math.max(0, usedCount - 1));
+    }
+
     private RestaurantTable findAssignedTable(Reservation reservation) {
         Long tableId = resolvePrimaryTableId(reservation);
         if (tableId == null) return null;
         return tableRepository.findById(tableId).orElse(null);
+    }
+
+    private List<RestaurantTable> findAssignedTables(Reservation reservation) {
+        List<RestaurantTable> tables = reservation.getTables();
+        if (tables != null && !tables.isEmpty()) {
+            return tables;
+        }
+
+        Long tableId = reservation.getTableId();
+        if (tableId == null) {
+            return List.of();
+        }
+        return tableRepository.findById(tableId)
+                .map(List::of)
+                .orElseGet(List::of);
     }
 
     private void updateAssignedTableStatus(Reservation reservation, RestaurantTable.TableStatus status) {

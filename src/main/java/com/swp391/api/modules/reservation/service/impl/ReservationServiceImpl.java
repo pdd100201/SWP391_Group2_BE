@@ -9,6 +9,7 @@ import com.swp391.api.modules.reservation.dto.ReservationResponse;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import com.swp391.api.modules.reservation.repository.ReservationRepository;
+import com.swp391.api.modules.reservation.service.ReservationAutoTableLockService;
 import com.swp391.api.modules.reservation.service.ReservationService;
 import com.swp391.api.modules.table.entity.RestaurantTable;
 import com.swp391.api.modules.table.repository.TableRepository;
@@ -36,7 +37,7 @@ public class ReservationServiceImpl implements ReservationService {
     // Danh sách phân quyền và cấu hình thời gian mặc định của nhà hàng
     private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER", "ROLE_RECEPTIONIST");
     private static final int AVERAGE_DINING_MINUTES = 90; // Thời gian ăn trung bình của khách (90 phút)
-    private static final int MIN_ADVANCE_BOOKING_HOURS = 2; // Khách phải đặt trước ít nhất 2 tiếng
+    private static final int MIN_ADVANCE_BOOKING_HOURS = 0; // Khách phải đặt trước ít nhất 2 tiếng
     private static final Set<String> RESERVATION_MANAGEMENT_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_RECEPTIONIST");
     private static final Set<String> RESERVATION_VIEW_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_RECEPTIONIST", "ROLE_WAITER");
 
@@ -44,15 +45,18 @@ public class ReservationServiceImpl implements ReservationService {
     private final CustomerRepository customerRepository;
     private final TableRepository tableRepository;
     private final OrderRepository orderRepository;
+    private final ReservationAutoTableLockService reservationAutoTableLockService;
 
     public ReservationServiceImpl(ReservationRepository reservationRepository,
                                   CustomerRepository customerRepository,
                                   TableRepository tableRepository,
-                                  OrderRepository orderRepository) {
+                                  OrderRepository orderRepository,
+                                  ReservationAutoTableLockService reservationAutoTableLockService) {
         this.reservationRepository = reservationRepository;
         this.customerRepository = customerRepository;
         this.tableRepository = tableRepository;
         this.orderRepository = orderRepository;
+        this.reservationAutoTableLockService = reservationAutoTableLockService;
     }
 
     // TẠO ĐƠN ĐẶT BÀN MỚI (Dành cho Khách hàng)
@@ -169,7 +173,9 @@ public class ReservationServiceImpl implements ReservationService {
 
         // 3. Chuyển trạng thái sang ĐÃ XÁC NHẬN (CONFIRMED)
         reservation.setStatus(ReservationStatus.CONFIRMED);
-        return toResponse(reservationRepository.save(reservation));
+        ReservationResponse response = toResponse(reservationRepository.save(reservation));
+        reservationAutoTableLockService.lockTablesForUpcomingReservations();
+        return response;
     }
 
     // GÁN BÀN CỤ THỂ KHI KHÁCH ĐẾN NHÀ HÀNG (Check-in đón khách)
@@ -220,6 +226,66 @@ public class ReservationServiceImpl implements ReservationService {
     }
 
     // LOGIC KIỂM TRA SỨC CHỨA CÒN TRỐNG CỦA NHÀ HÀNG (Hàm nội bộ)
+    @Override
+    public ReservationResponse changeTables(Long reservationId, AssignTablesRequest request) {
+        requireAnyRole(STAFF_ROLES);
+
+        Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Khong tim thay don dat ban"));
+
+        if (reservation.getStatus() != ReservationStatus.ARRIVED) {
+            throw new BusinessException("Chi co the doi ban cho khach da check-in!");
+        }
+
+        if (request.getTableIds() == null || request.getTableIds().isEmpty()) {
+            throw new BusinessException("Vui long chon ban moi!");
+        }
+
+        List<RestaurantTable> currentTables = new java.util.ArrayList<>();
+        if (reservation.getTables() != null) {
+            currentTables.addAll(reservation.getTables());
+        }
+        if (currentTables.isEmpty() && reservation.getTableId() != null) {
+            tableRepository.findByIdForUpdate(reservation.getTableId()).ifPresent(currentTables::add);
+        }
+
+        List<RestaurantTable> newTables = new java.util.ArrayList<>(request.getTableIds().stream()
+                .map(tableId -> tableRepository.findByIdForUpdate(tableId)
+                        .orElseThrow(() -> new BusinessException("Ban duoc chon khong ton tai!")))
+                .toList());
+
+        for (RestaurantTable table : newTables) {
+            boolean keepingSameTable = currentTables.stream()
+                    .anyMatch(currentTable -> currentTable.getId().equals(table.getId()));
+            boolean assignableStatus = table.getStatus() == RestaurantTable.TableStatus.AVAILABLE
+                    || table.getStatus() == RestaurantTable.TableStatus.RESERVED
+                    || (keepingSameTable && table.getStatus() == RestaurantTable.TableStatus.OCCUPIED);
+            if (!Boolean.TRUE.equals(table.getIsActive()) || !assignableStatus) {
+                throw new BusinessException("Ban so " + table.getTableNumber() + " hien dang khong kha dung!");
+            }
+        }
+
+        int totalCapacity = newTables.stream()
+                .mapToInt(RestaurantTable::getCapacity)
+                .sum();
+        if (totalCapacity < reservation.getNumberOfGuests()) {
+            throw new BusinessException("Tong suc chua cua ban moi khong du cho " + reservation.getNumberOfGuests() + " khach!");
+        }
+
+        currentTables.stream()
+                .filter(table -> newTables.stream().noneMatch(newTable -> newTable.getId().equals(table.getId())))
+                .forEach(table -> table.setStatus(RestaurantTable.TableStatus.AVAILABLE));
+        newTables.forEach(table -> table.setStatus(RestaurantTable.TableStatus.OCCUPIED));
+
+        tableRepository.saveAll(currentTables);
+        tableRepository.saveAll(newTables);
+
+        reservation.setTables(newTables);
+        reservation.setTableId(newTables.get(0).getId());
+
+        return toResponse(reservationRepository.save(reservation));
+    }
+
     private void validateTableAvailability(LocalDate reservationDate,
                                            LocalTime requestedStart,
                                            Integer requestedGuests) {
@@ -277,6 +343,7 @@ public class ReservationServiceImpl implements ReservationService {
                 reservation.getUpdatedAt()
         );
         // Điền thêm thông tin Hóa đơn đi kèm (nếu đã tạo hóa đơn gọi món cho đơn đặt bàn này)
+        response.setTableIds(resolveTableIds(reservation));
         orderRepository.findByReservationReservationId(reservation.getReservationId()).ifPresent(order -> {
             response.setOrderId(order.getId());
             response.setOrderCode(order.getOrderCode());
@@ -297,6 +364,18 @@ public class ReservationServiceImpl implements ReservationService {
         }
 
         return tables.get(0).getId();
+    }
+
+    private List<Long> resolveTableIds(Reservation reservation) {
+        List<RestaurantTable> tables = reservation.getTables();
+        if (tables != null && !tables.isEmpty()) {
+            return tables.stream()
+                    .map(RestaurantTable::getId)
+                    .toList();
+        }
+
+        Long tableId = reservation.getTableId();
+        return tableId == null ? List.of() : List.of(tableId);
     }
 
     // LẤY EMAIL CỦA TÀI KHOẢN ĐANG ĐĂNG NHẬP (Có thể ẩn danh/Null)
