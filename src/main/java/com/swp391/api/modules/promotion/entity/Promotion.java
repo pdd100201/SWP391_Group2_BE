@@ -155,10 +155,6 @@ public class Promotion extends BaseAuditableEntity {
         this.usedCount = usedCount;
     }
 
-    public String getName() {
-        return promotionName;
-    }
-
     public PromotionStatus getStatus() {
         return status;
     }
