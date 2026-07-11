@@ -216,4 +216,7 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     // 15. Tìm nhanh đơn đặt bàn dựa vào ID bàn và trạng thái (Hàm tự động tạo theo cơ chế Query Method của Spring Data JPA).
     Optional<Reservation> findByTableIdAndStatus(Long tableId, ReservationStatus status);
+
+    // 16. Batch lookup: tìm reservation theo nhiều tableId và nhiều status cùng lúc.
+    List<Reservation> findByTableIdInAndStatusIn(List<Long> tableIds, List<ReservationStatus> statuses);
 }

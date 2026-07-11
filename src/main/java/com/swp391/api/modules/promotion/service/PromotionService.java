@@ -8,6 +8,8 @@ import com.swp391.api.modules.promotion.entity.Promotion;
 import com.swp391.api.modules.promotion.entity.PromotionStatus;
 import com.swp391.api.modules.promotion.repository.PromotionRepository;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class PromotionService {
+
+    public record PromotionApplication(Promotion promotion, BigDecimal discountAmount) {}
 
     private static final BigDecimal ZERO = BigDecimal.ZERO;
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
@@ -81,6 +85,50 @@ public class PromotionService {
             throw new BusinessException("This promotion is already used by orders. Deactivate it instead of deleting.");
         }
         promotionRepository.delete(promotion);
+    }
+
+    @Transactional(readOnly = true)
+    public PromotionApplication validateForInvoice(String code, BigDecimal subtotal) {
+        if (code == null || code.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Promotion code is required.");
+        }
+        Promotion promotion = promotionRepository.findByCodeIgnoreCase(code.trim())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Promotion code not found."));
+        LocalDateTime now = LocalDateTime.now();
+        if (promotion.getStatus() != PromotionStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is not active.");
+        }
+        if (promotion.getStartDate() != null && now.isBefore(promotion.getStartDate())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion has not started yet.");
+        }
+        if (promotion.getEndDate() != null && now.isAfter(promotion.getEndDate())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion has expired.");
+        }
+        if (promotion.getUsageLimit() != null && promotion.getUsedCount() >= promotion.getUsageLimit()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion usage limit has been reached.");
+        }
+        BigDecimal min = promotion.getMinOrderAmount();
+        if (min != null && subtotal.compareTo(min) < 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Order subtotal does not meet the minimum amount for this promotion.");
+        }
+        BigDecimal discount;
+        if (promotion.getDiscountType() == DiscountType.PERCENT) {
+            discount = subtotal.multiply(promotion.getDiscountValue())
+                    .divide(ONE_HUNDRED, 2, RoundingMode.HALF_UP);
+            if (promotion.getMaxDiscountAmount() != null) {
+                discount = discount.min(promotion.getMaxDiscountAmount());
+            }
+        } else {
+            discount = promotion.getDiscountValue().min(subtotal).setScale(2, RoundingMode.HALF_UP);
+        }
+        return new PromotionApplication(promotion, discount);
+    }
+
+    @Transactional
+    public void increaseUsedCount(Promotion promotion) {
+        promotion.setUsedCount(promotion.getUsedCount() + 1);
+        promotionRepository.save(promotion);
     }
 
     private Promotion findPromotion(Long id) {

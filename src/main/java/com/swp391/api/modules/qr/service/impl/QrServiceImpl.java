@@ -6,6 +6,8 @@ import com.swp391.api.modules.menu.entity.MenuItem;
 import com.swp391.api.modules.menu.entity.RecipeIngredient;
 import com.swp391.api.modules.menu.repository.MenuItemRepository;
 import com.swp391.api.modules.order.service.OrderService;
+import com.swp391.api.modules.reservation.entity.ReservationStatus;
+import com.swp391.api.modules.reservation.repository.ReservationRepository;
 import com.swp391.api.modules.qr.dto.*;
 import com.swp391.api.modules.qr.dto.QrAccessTokenResponse;
 import com.swp391.api.modules.qr.dto.QrOrderSummaryResponse;
@@ -37,6 +39,8 @@ public class QrServiceImpl implements QrService {
     private final QrOrderItemRepository orderItemRepository;
     private final InventoryRepository inventoryRepository;
     private final OrderService orderService;
+    private final ReservationRepository reservationRepository;
+    private final QrDiningTableRepository diningTableRepository;
 
     public QrServiceImpl(
             QrSessionRepository sessionRepository,
@@ -46,7 +50,9 @@ public class QrServiceImpl implements QrService {
             QrOrderRepository orderRepository,
             QrOrderItemRepository orderItemRepository,
             InventoryRepository inventoryRepository,
-            OrderService orderService) {
+            OrderService orderService,
+            ReservationRepository reservationRepository,
+            QrDiningTableRepository diningTableRepository) {
         this.sessionRepository = sessionRepository;
         this.menuItemRepository = menuItemRepository;
         this.recipeIngredientRepository = recipeIngredientRepository;
@@ -55,6 +61,8 @@ public class QrServiceImpl implements QrService {
         this.orderItemRepository = orderItemRepository;
         this.inventoryRepository = inventoryRepository;
         this.orderService = orderService;
+        this.reservationRepository = reservationRepository;
+        this.diningTableRepository = diningTableRepository;
     }
 
     @Override
@@ -146,6 +154,8 @@ public class QrServiceImpl implements QrService {
                     newOrder.setStatus("OPEN");
                     newOrder.setCreatedAt(LocalDateTime.now());
                     newOrder.setUpdatedAt(LocalDateTime.now());
+                    reservationRepository.findByTableIdAndStatus(session.getTableId(), ReservationStatus.CONFIRMED)
+                            .ifPresent(r -> newOrder.setReservationId(r.getReservationId()));
                     return orderRepository.save(newOrder);
                 });
 
@@ -210,6 +220,41 @@ public class QrServiceImpl implements QrService {
                 .stream()
                 .collect(Collectors.groupingBy(QrOrderItem::getOrderId));
 
+        List<Long> tableIds = orders.stream()
+                .map(QrOrder::getTableId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, String> tableNameById = diningTableRepository.findAllById(tableIds)
+                .stream()
+                .collect(Collectors.toMap(QrDiningTable::getId, t -> t.getTableName() != null ? t.getTableName() : "Bàn " + t.getId()));
+
+        List<Long> reservationIds = orders.stream()
+                .map(QrOrder::getReservationId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, String> guestNameByReservationId = reservationRepository.findAllById(reservationIds)
+                .stream()
+                .collect(Collectors.toMap(r -> r.getReservationId(), r -> r.getFullName() != null ? r.getFullName() : ""));
+
+        // Fallback: orders without reservationId → lookup by tableId (CONFIRMED or ARRIVED)
+        List<Long> tableIdsWithoutReservation = orders.stream()
+                .filter(o -> o.getReservationId() == null && o.getTableId() != null)
+                .map(QrOrder::getTableId)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, String> guestNameByTableId = tableIdsWithoutReservation.isEmpty()
+                ? Collections.emptyMap()
+                : reservationRepository.findByTableIdInAndStatusIn(
+                        tableIdsWithoutReservation,
+                        List.of(ReservationStatus.CONFIRMED, ReservationStatus.ARRIVED))
+                  .stream()
+                  .collect(Collectors.toMap(
+                          r -> r.getTableId(),
+                          r -> r.getFullName() != null ? r.getFullName() : "",
+                          (a, b) -> a));
+
         return orders.stream()
                 .map(order -> {
                     List<QrOrderItem> items = itemsByOrderId.getOrDefault(order.getOrderId(), List.of());
@@ -220,14 +265,22 @@ public class QrServiceImpl implements QrService {
                     boolean allDone = !items.isEmpty() && items.stream()
                             .allMatch(i -> "SERVED".equals(i.getItemStatus()) || "CANCELLED".equals(i.getItemStatus()));
                     String serviceStatus = allDone ? "SERVED"
+                            : anyDraft ? "HAS_DRAFT"
                             : anyPreparing ? "PREPARING"
                             : anyReady ? "READY"
-                            : anyDraft ? "HAS_DRAFT"
-                            : "CONFIRMED";
+                            : "OPEN";
+                    String tableName = order.getTableId() != null
+                            ? tableNameById.getOrDefault(order.getTableId(), "Bàn " + order.getTableId())
+                            : null;
+                    String guestName = order.getReservationId() != null
+                            ? guestNameByReservationId.get(order.getReservationId())
+                            : (order.getTableId() != null ? guestNameByTableId.get(order.getTableId()) : null);
                     return new QrOrderSummaryResponse(
                             order.getOrderId(),
                             order.getOrderCode(),
                             order.getTableId(),
+                            tableName,
+                            guestName,
                             order.getStatus(),
                             serviceStatus,
                             total,
@@ -386,6 +439,11 @@ public class QrServiceImpl implements QrService {
         for (QrOrderItem item : drafts) {
             submitItem(item);
         }
+        reservationRepository.findByTableIdAndStatus(order.getTableId(), ReservationStatus.CONFIRMED)
+                .ifPresent(reservation -> {
+                    reservation.setStatus(ReservationStatus.ARRIVED);
+                    reservationRepository.save(reservation);
+                });
         return buildResponse(order, orderId);
     }
 
