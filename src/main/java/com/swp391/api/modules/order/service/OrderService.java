@@ -18,6 +18,9 @@ import com.swp391.api.modules.order.entity.OrderItemStatus;
 import com.swp391.api.modules.order.entity.OrderStatus;
 import com.swp391.api.modules.order.entity.RestaurantOrder;
 import com.swp391.api.modules.order.repository.OrderRepository;
+import com.swp391.api.modules.payment.entity.Payment;
+import com.swp391.api.modules.payment.entity.PaymentStatus;
+import com.swp391.api.modules.payment.repository.PaymentRepository;
 import com.swp391.api.modules.promotion.entity.DiscountType;
 import com.swp391.api.modules.promotion.entity.Promotion;
 import com.swp391.api.modules.promotion.entity.PromotionStatus;
@@ -61,6 +64,7 @@ public class OrderService {
     private final UserRepository userRepository;
     private final MenuService menuService;
     private final PromotionRepository promotionRepository;
+    private final PaymentRepository paymentRepository;
 
     public OrderService(
             OrderRepository orderRepository,
@@ -70,7 +74,8 @@ public class OrderService {
             InventoryRepository inventoryRepository,
             UserRepository userRepository,
             MenuService menuService,
-            PromotionRepository promotionRepository) {
+            PromotionRepository promotionRepository,
+            PaymentRepository paymentRepository) {
         this.orderRepository = orderRepository;
         this.reservationRepository = reservationRepository;
         this.tableRepository = tableRepository;
@@ -79,6 +84,7 @@ public class OrderService {
         this.userRepository = userRepository;
         this.menuService = menuService;
         this.promotionRepository = promotionRepository;
+        this.paymentRepository = paymentRepository;
     }
 
     public OrderResponse create(CreateOrderRequest request) {
@@ -286,6 +292,10 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "All non-cancelled items must be served before closing");
         }
         refreshDiscount(order);
+        if (calculateSubtotal(order).compareTo(BigDecimal.ZERO) > 0
+                && paymentRepository.findFirstByOrder_IdAndStatusOrderByCreatedAtDesc(orderId, PaymentStatus.PAID).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Order must be paid before closing");
+        }
         order.setStatus(OrderStatus.CLOSED);
         order.setClosedAt(LocalDateTime.now());
         order.getReservation().setStatus(ReservationStatus.COMPLETED);
@@ -470,6 +480,7 @@ public class OrderService {
         RestaurantTable table = findAssignedTable(reservation);
         List<RestaurantTable> assignedTables = findAssignedTables(reservation);
         Promotion promotion = order.getPromotion();
+        Payment payment = paymentRepository.findFirstByOrder_IdOrderByCreatedAtDesc(order.getId()).orElse(null);
         return new OrderResponse(
                 order.getId(),
                 order.getOrderCode(),
@@ -496,6 +507,12 @@ public class OrderService {
                 subtotal.setScale(2, RoundingMode.HALF_UP),
                 discountAmount,
                 total,
+                payment == null ? null : payment.getId(),
+                payment == null ? null : payment.getProvider().name(),
+                payment == null ? null : payment.getStatus().name(),
+                payment == null ? null : payment.getPaymentCode(),
+                payment == null ? null : payment.getQrImageUrl(),
+                payment == null ? null : payment.getPaidAt(),
                 items,
                 order.getClosedAt(),
                 order.getCreatedAt(),

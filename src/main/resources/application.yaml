@@ -31,3 +31,12 @@ vnpay:
   return-url: http://localhost:8080/api/payments/vnpay/return
   ipn-url: http://localhost:8080/api/payments/vnpay/ipn
   frontend-return-url: http://localhost:5173/dashboard/orders-service
+
+payment:
+  sepay:
+    bank-code: "MB"
+    account-number: "0357502140"
+    account-name: "PHAN HUU DONG"
+    webhook-api-key: ""
+    transfer-prefix: "GS"
+    vietqr-template: "compact2"
