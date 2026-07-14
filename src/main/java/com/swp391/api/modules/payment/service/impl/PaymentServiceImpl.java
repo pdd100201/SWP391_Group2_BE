@@ -82,6 +82,39 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
+    @Transactional
+    public PaymentResponse createCashPayment(Long orderId) {
+        RestaurantOrder order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+        if (order.getStatus() != OrderStatus.OPEN) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only open orders can be paid");
+        }
+        BigDecimal total = calculateTotal(order);
+        if (total.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Order total must be greater than 0");
+        }
+
+        Payment existingPaid = paymentRepository.findFirstByOrder_IdAndStatusOrderByCreatedAtDesc(orderId, PaymentStatus.PAID)
+                .orElse(null);
+        if (existingPaid != null) {
+            return toResponse(existingPaid);
+        }
+
+        paymentRepository.findFirstByOrder_IdOrderByCreatedAtDesc(orderId)
+                .filter(payment -> payment.getStatus() == PaymentStatus.PENDING)
+                .ifPresent(payment -> payment.setStatus(PaymentStatus.CANCELLED));
+
+        Payment payment = new Payment();
+        payment.setOrder(order);
+        payment.setProvider(PaymentProvider.CASH);
+        payment.setStatus(PaymentStatus.PAID);
+        payment.setAmount(total);
+        payment.setPaymentCode(buildCashPaymentCode(order));
+        payment.setPaidAt(LocalDateTime.now());
+        return toResponse(paymentRepository.save(payment));
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public PaymentResponse getLatestPayment(Long orderId) {
         return paymentRepository.findFirstByOrder_IdOrderByCreatedAtDesc(orderId)
@@ -165,6 +198,10 @@ public class PaymentServiceImpl implements PaymentService {
                 ? "GS"
                 : sepayProperties.getTransferPrefix().trim().toUpperCase(Locale.ROOT);
         return prefix + "ORD" + order.getId() + "PAY" + System.currentTimeMillis();
+    }
+
+    private String buildCashPaymentCode(RestaurantOrder order) {
+        return "CASHORD" + order.getId() + "PAY" + System.currentTimeMillis();
     }
 
     private String buildQrImageUrl(Payment payment) {

@@ -33,6 +33,11 @@ public class PaymentController {
         return ResponseEntity.status(HttpStatus.CREATED).body(paymentService.createSepayPayment(orderId));
     }
 
+    @PostMapping("/orders/{orderId}/cash")
+    public ResponseEntity<PaymentResponse> createCashPayment(@PathVariable Long orderId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(paymentService.createCashPayment(orderId));
+    }
+
     @GetMapping("/orders/{orderId}/latest")
     public ResponseEntity<PaymentResponse> getLatestPayment(@PathVariable Long orderId) {
         return ResponseEntity.ok(paymentService.getLatestPayment(orderId));
@@ -44,6 +49,11 @@ public class PaymentController {
             @RequestBody SepayWebhookRequest request) {
         validateSepayAuthorization(authorization);
         return ResponseEntity.ok(paymentService.handleSepayWebhook(request));
+    }
+
+    @GetMapping("/sepay/webhook")
+    public ResponseEntity<Map<String, Boolean>> checkSepayWebhookEndpoint() {
+        return ResponseEntity.ok(Map.of("ready", true));
     }
 
     private void validateSepayAuthorization(String authorization) {
