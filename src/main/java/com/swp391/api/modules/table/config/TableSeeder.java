@@ -17,7 +17,7 @@ import java.util.List;
  * Chỉ thêm dữ liệu khi bảng trống (count == 0) để tránh trùng lặp khi restart.</p>
  *
  * <p>{@code @Order(3)} đảm bảo seeder này chạy sau {@code DefaultUsersSeeder} (Order 1)
- * và {@code InventoryItemSeeder} (Order 2), giữ thứ tự nhất quán.</p>
+ * sau các seeder nền tảng để giữ thứ tự khởi tạo nhất quán.</p>
  *
  * Seeds sample restaurant tables on startup if the table is empty.
  */

@@ -9,6 +9,7 @@ import com.swp391.api.modules.user.entity.User;
 import com.swp391.api.modules.user.repository.CustomerRepository;
 import com.swp391.api.modules.user.repository.UserRepository;
 import com.swp391.api.modules.user.service.UserService;
+import com.swp391.api.common.media.CloudinaryImageService;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -26,11 +27,14 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final CustomerRepository customerRepository;
     private final PasswordEncoder passwordEncoder;
+    private final CloudinaryImageService imageService;
 
-    public UserServiceImpl(UserRepository userRepository, CustomerRepository customerRepository, PasswordEncoder passwordEncoder) {
+    public UserServiceImpl(UserRepository userRepository, CustomerRepository customerRepository,
+            PasswordEncoder passwordEncoder, CloudinaryImageService imageService) {
         this.userRepository = userRepository;
         this.customerRepository = customerRepository;
         this.passwordEncoder = passwordEncoder;
+        this.imageService = imageService;
     }
 
     @Override
@@ -76,7 +80,7 @@ public class UserServiceImpl implements UserService {
     public UserProfileResponse updateAvatar(MultipartFile file) {
         // Tạo đường dẫn avatar tạm và lưu lại cho tài khoản hiện tại.
         Object account = getCurrentAccount();
-        String avatarUrl = "https://mock-storage.local/avatars/" + (file != null ? file.getOriginalFilename() : "default-avatar.png");
+        String avatarUrl = imageService.upload(file, "avatars").url();
 
         if (account instanceof User user) {
             user.setAvatarUrl(avatarUrl);

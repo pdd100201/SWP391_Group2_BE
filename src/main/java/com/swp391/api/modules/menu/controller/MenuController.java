@@ -2,8 +2,6 @@ package com.swp391.api.modules.menu.controller;
 
 import com.swp391.api.modules.menu.dto.MenuItemRequest;
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
-import com.swp391.api.modules.menu.dto.ReservationRequest;
-import com.swp391.api.modules.menu.dto.ReservationResponse;
 import com.swp391.api.modules.menu.service.MenuService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -52,23 +50,4 @@ public class MenuController {
         return ResponseEntity.ok(menuService.toggleActive(id));
     }
 
-    @PostMapping("/{id}/reservations")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER')")
-    public ResponseEntity<ReservationResponse> reserve(
-            @PathVariable Long id,
-            @Valid @RequestBody ReservationRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(menuService.reserve(id, request));
-    }
-
-    @PostMapping("/reservations/{reservationId}/serve")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER')")
-    public ResponseEntity<ReservationResponse> serve(@PathVariable Long reservationId) {
-        return ResponseEntity.ok(menuService.serve(reservationId));
-    }
-
-    @PostMapping("/reservations/{reservationId}/release")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER')")
-    public ResponseEntity<ReservationResponse> release(@PathVariable Long reservationId) {
-        return ResponseEntity.ok(menuService.release(reservationId));
-    }
 }

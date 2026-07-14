@@ -44,17 +44,15 @@ public class QrMenuResponse {
         private Double price;
         private String imageUrl;
         private String description;
-        private int canServe;
 
         public ItemDto() {}
 
-        public ItemDto(Long itemId, String itemName, Double price, String imageUrl, String description, int canServe) {
+        public ItemDto(Long itemId, String itemName, Double price, String imageUrl, String description) {
             this.itemId = itemId;
             this.itemName = itemName;
             this.price = price;
             this.imageUrl = imageUrl;
             this.description = description;
-            this.canServe = canServe;
         }
 
         public Long getItemId() { return itemId; }
@@ -72,7 +70,5 @@ public class QrMenuResponse {
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
 
-        public int getCanServe() { return canServe; }
-        public void setCanServe(int canServe) { this.canServe = canServe; }
     }
 }

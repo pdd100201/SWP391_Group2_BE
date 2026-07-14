@@ -1,10 +1,7 @@
 package com.swp391.api.modules.order.service;
 
-import com.swp391.api.modules.inventory.entity.InventoryItem;
-import com.swp391.api.modules.inventory.repository.InventoryRepository;
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
 import com.swp391.api.modules.menu.entity.MenuItem;
-import com.swp391.api.modules.menu.entity.RecipeIngredient;
 import com.swp391.api.modules.menu.repository.MenuItemRepository;
 import com.swp391.api.modules.menu.service.MenuService;
 import com.swp391.api.modules.order.dto.AddOrderItemRequest;
@@ -13,7 +10,6 @@ import com.swp391.api.modules.order.dto.OrderItemResponse;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.dto.UpdateOrderItemRequest;
 import com.swp391.api.modules.order.entity.OrderItem;
-import com.swp391.api.modules.order.entity.OrderItemIngredient;
 import com.swp391.api.modules.order.entity.OrderItemStatus;
 import com.swp391.api.modules.order.entity.OrderStatus;
 import com.swp391.api.modules.order.entity.RestaurantOrder;
@@ -37,7 +33,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -53,14 +48,12 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @Transactional
 public class OrderService {
-    private static final double EPSILON = 0.000001;
     private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER");
 
     private final OrderRepository orderRepository;
     private final ReservationRepository reservationRepository;
     private final TableRepository tableRepository;
     private final MenuItemRepository menuItemRepository;
-    private final InventoryRepository inventoryRepository;
     private final UserRepository userRepository;
     private final MenuService menuService;
     private final PromotionRepository promotionRepository;
@@ -71,7 +64,6 @@ public class OrderService {
             ReservationRepository reservationRepository,
             TableRepository tableRepository,
             MenuItemRepository menuItemRepository,
-            InventoryRepository inventoryRepository,
             UserRepository userRepository,
             MenuService menuService,
             PromotionRepository promotionRepository,
@@ -80,7 +72,6 @@ public class OrderService {
         this.reservationRepository = reservationRepository;
         this.tableRepository = tableRepository;
         this.menuItemRepository = menuItemRepository;
-        this.inventoryRepository = inventoryRepository;
         this.userRepository = userRepository;
         this.menuService = menuService;
         this.promotionRepository = promotionRepository;
@@ -157,7 +148,6 @@ public class OrderService {
         requireOpen(order);
         return menuService.getAll().stream()
                 .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
-                .filter(item -> Boolean.TRUE.equals(item.getCostComplete()))
                 .filter(item -> "AVAILABLE".equals(item.getAvailability()) || "LIMITED".equals(item.getAvailability()))
                 .toList();
     }
@@ -179,7 +169,7 @@ public class OrderService {
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(calculateSuggestedPrice(menuItem));
+        item.setUnitPrice(getMenuPrice(menuItem));
         item.setQuantity(request.getQuantity());
         updateSubtotal(item);
         item.setNote(normalize(request.getNote()));
@@ -211,7 +201,8 @@ public class OrderService {
         if (publicAccess || item.getStatus() != OrderItemStatus.CONFIRMED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only draft or confirmed items can be edited");
         }
-        adjustConfirmedQuantity(item, request.getQuantity());
+        item.setQuantity(request.getQuantity());
+        updateSubtotal(item);
         item.setNote(normalize(request.getNote()));
         return toResponse(orderRepository.save(order));
     }
@@ -230,7 +221,6 @@ public class OrderService {
         if (item.getStatus() == OrderItemStatus.DRAFT) {
             order.getItems().remove(item);
         } else if (!publicAccess && item.getStatus() == OrderItemStatus.CONFIRMED) {
-            restoreInventory(item);
             item.setStatus(OrderItemStatus.CANCELLED);
         } else {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This item can no longer be removed");
@@ -350,7 +340,6 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order cannot be cancelled after preparation has started");
         }
         order.getItems().forEach(item -> {
-            if (item.getStatus() == OrderItemStatus.CONFIRMED) restoreInventory(item);
             item.setStatus(OrderItemStatus.CANCELLED);
         });
         if (order.getPromotion() != null) {
@@ -367,103 +356,20 @@ public class OrderService {
 
     private void submitItem(OrderItem item) {
         MenuItem menuItem = findActiveMenuItem(item.getMenuItem().getId());
-        List<RecipeIngredient> recipe = menuItem.getRecipeIngredients().stream()
-                .sorted(Comparator.comparing(ingredient -> ingredient.getInventoryItem().getId()))
-                .toList();
-        if (recipe.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, menuItem.getName() + " has no recipe");
-        }
-
-        BigDecimal foodCost = BigDecimal.ZERO;
-        for (RecipeIngredient recipeIngredient : recipe) {
-            InventoryItem inventory = lockInventory(recipeIngredient.getInventoryItem().getId());
-            double required = recipeIngredient.getRequiredQuantity() * item.getQuantity();
-            double available = inventory.getQuantity() - inventory.getReservedQuantity();
-            if (!Boolean.TRUE.equals(inventory.getIsActive()) || available + EPSILON < required) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Not enough available inventory for " + inventory.getItemName());
-            }
-            if (inventory.getPricePerUnit() == null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Inventory price is missing for " + inventory.getItemName());
-            }
-            inventory.setQuantity(inventory.getQuantity() - required);
-            foodCost = foodCost.add(BigDecimal.valueOf(inventory.getPricePerUnit())
-                    .multiply(BigDecimal.valueOf(recipeIngredient.getRequiredQuantity())));
-
-            OrderItemIngredient snapshot = new OrderItemIngredient();
-            snapshot.setInventoryItem(inventory);
-            snapshot.setInventoryItemName(inventory.getItemName());
-            snapshot.setUnit(inventory.getUnit());
-            snapshot.setDeductedQuantity(required);
-            item.addIngredient(snapshot);
-        }
-
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(applyMargin(foodCost, menuItem.getProfitMarginPercent()));
+        item.setUnitPrice(getMenuPrice(menuItem));
         updateSubtotal(item);
         item.setStatus(OrderItemStatus.CONFIRMED);
         item.setSubmittedAt(LocalDateTime.now());
     }
 
-    private void adjustConfirmedQuantity(OrderItem item, int newQuantity) {
-        int oldQuantity = item.getQuantity();
-        if (newQuantity == oldQuantity) return;
-        int delta = newQuantity - oldQuantity;
-        for (OrderItemIngredient snapshot : item.getIngredients()) {
-            InventoryItem inventory = lockInventory(snapshot.getInventoryItem().getId());
-            double perServing = snapshot.getDeductedQuantity() / oldQuantity;
-            double change = perServing * Math.abs(delta);
-            if (delta > 0) {
-                double available = inventory.getQuantity() - inventory.getReservedQuantity();
-                if (available + EPSILON < change) {
-                    throw new ResponseStatusException(HttpStatus.CONFLICT,
-                            "Not enough available inventory for " + inventory.getItemName());
-                }
-                inventory.setQuantity(inventory.getQuantity() - change);
-                snapshot.setDeductedQuantity(snapshot.getDeductedQuantity() + change);
-            } else {
-                inventory.setQuantity(inventory.getQuantity() + change);
-                snapshot.setDeductedQuantity(Math.max(0.0, snapshot.getDeductedQuantity() - change));
-            }
+    private BigDecimal getMenuPrice(MenuItem item) {
+        if (item.getPrice() == null || item.getPrice() <= 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish price is not available");
         }
-        item.setQuantity(newQuantity);
-        updateSubtotal(item);
-    }
-
-    private void restoreInventory(OrderItem item) {
-        for (OrderItemIngredient snapshot : item.getIngredients().stream()
-                .sorted(Comparator.comparing(ingredient -> ingredient.getInventoryItem().getId()))
-                .toList()) {
-            InventoryItem inventory = lockInventory(snapshot.getInventoryItem().getId());
-            inventory.setQuantity(inventory.getQuantity() + snapshot.getDeductedQuantity());
-        }
-    }
-
-    private BigDecimal calculateSuggestedPrice(MenuItem item) {
-        BigDecimal cost = BigDecimal.ZERO;
-        if (item.getRecipeIngredients().isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish has no recipe");
-        }
-        for (RecipeIngredient ingredient : item.getRecipeIngredients()) {
-            Double price = ingredient.getInventoryItem().getPricePerUnit();
-            if (price == null) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish price is not available");
-            }
-            cost = cost.add(BigDecimal.valueOf(price)
-                    .multiply(BigDecimal.valueOf(ingredient.getRequiredQuantity())));
-        }
-        return applyMargin(cost, item.getProfitMarginPercent());
-    }
-
-    private BigDecimal applyMargin(BigDecimal cost, Double marginPercent) {
-        BigDecimal multiplier = BigDecimal.ONE.add(
-                BigDecimal.valueOf(marginPercent).divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP));
-        BigDecimal raw = cost.multiply(multiplier);
-        return raw.divide(BigDecimal.valueOf(1000), 0, RoundingMode.CEILING)
-                .multiply(BigDecimal.valueOf(1000)).setScale(2);
+        return BigDecimal.valueOf(item.getPrice()).setScale(2, RoundingMode.HALF_UP);
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {
@@ -669,11 +575,6 @@ public class OrderService {
         return menuItemRepository.findById(id)
                 .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Active menu item not found"));
-    }
-
-    private InventoryItem lockInventory(Long id) {
-        return inventoryRepository.findByIdForUpdate(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Inventory item no longer exists"));
     }
 
     private void requireOpen(RestaurantOrder order) {

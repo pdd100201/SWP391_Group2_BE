@@ -3,11 +3,9 @@ package com.swp391.api.modules.menu.entity;
 import com.swp391.api.modules.user.entity.BaseAuditableEntity;
 import jakarta.persistence.*;
 
-import java.util.ArrayList;
-import java.util.List;
 
 @Entity
-@Table(name = "inventory_linked_menu_items")
+@Table(name = "restaurant_menu_items")
 public class MenuItem extends BaseAuditableEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -29,23 +27,11 @@ public class MenuItem extends BaseAuditableEntity {
     @Column(name = "image_url")
     private String imageUrl;
 
-    @Column(name = "profit_margin_percent", nullable = false)
-    private Double profitMarginPercent;
+    @Column(name = "price")
+    private Double price;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
-
-    @OneToMany(mappedBy = "menuItem", cascade = CascadeType.ALL, orphanRemoval = true)
-    @OrderBy("id asc")
-    private List<RecipeIngredient> recipeIngredients = new ArrayList<>();
-
-    public void replaceRecipe(List<RecipeIngredient> ingredients) {
-        recipeIngredients.clear();
-        ingredients.forEach(ingredient -> {
-            ingredient.setMenuItem(this);
-            recipeIngredients.add(ingredient);
-        });
-    }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -62,9 +48,8 @@ public class MenuItem extends BaseAuditableEntity {
     public void setDescription(String description) { this.description = description; }
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
-    public Double getProfitMarginPercent() { return profitMarginPercent; }
-    public void setProfitMarginPercent(Double profitMarginPercent) { this.profitMarginPercent = profitMarginPercent; }
+    public Double getPrice() { return price; }
+    public void setPrice(Double price) { this.price = price; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean active) { isActive = active; }
-    public List<RecipeIngredient> getRecipeIngredients() { return recipeIngredients; }
 }

@@ -1,10 +1,5 @@
 package com.swp391.api.modules.qr.service.impl;
 
-import com.swp391.api.modules.inventory.entity.InventoryItem;
-import com.swp391.api.modules.inventory.repository.InventoryRepository;
-import com.swp391.api.modules.menu.entity.MenuItem;
-import com.swp391.api.modules.menu.entity.RecipeIngredient;
-import com.swp391.api.modules.menu.repository.MenuItemRepository;
 import com.swp391.api.modules.order.entity.OrderStatus;
 import com.swp391.api.modules.order.entity.RestaurantOrder;
 import com.swp391.api.modules.order.repository.OrderRepository;
@@ -32,15 +27,10 @@ import java.util.Optional;
 @Service
 public class QrServiceImpl implements QrService {
 
-    private static final double EPSILON = 0.000001;
-
     private final QrSessionRepository sessionRepository;
     private final QrMenuItemRepository menuItemRepository;
-    private final QrRecipeIngredientRepository recipeIngredientRepository;
-    private final MenuItemRepository menuModuleItemRepository;
     private final QrOrderRepository orderRepository;
     private final QrOrderItemRepository orderItemRepository;
-    private final InventoryRepository inventoryRepository;
     private final OrderService orderService;
     private final ReservationRepository reservationRepository;
     private final QrDiningTableRepository diningTableRepository;
@@ -49,22 +39,16 @@ public class QrServiceImpl implements QrService {
     public QrServiceImpl(
             QrSessionRepository sessionRepository,
             QrMenuItemRepository menuItemRepository,
-            QrRecipeIngredientRepository recipeIngredientRepository,
-            MenuItemRepository menuModuleItemRepository,
             QrOrderRepository orderRepository,
             QrOrderItemRepository orderItemRepository,
-            InventoryRepository inventoryRepository,
             OrderService orderService,
             ReservationRepository reservationRepository,
             QrDiningTableRepository diningTableRepository,
             OrderRepository restaurantOrderRepository) {
         this.sessionRepository = sessionRepository;
         this.menuItemRepository = menuItemRepository;
-        this.recipeIngredientRepository = recipeIngredientRepository;
-        this.menuModuleItemRepository = menuModuleItemRepository;
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
-        this.inventoryRepository = inventoryRepository;
         this.orderService = orderService;
         this.reservationRepository = reservationRepository;
         this.diningTableRepository = diningTableRepository;
@@ -79,9 +63,7 @@ public class QrServiceImpl implements QrService {
         session.setSessionToken(UUID.randomUUID().toString());
         session.setStartedAt(LocalDateTime.now());
         session.setStatus("ACTIVE");
-
         sessionRepository.save(session);
-
         return new QrSessionResponse(
                 session.getSessionToken(),
                 tableId,
@@ -95,27 +77,6 @@ public class QrServiceImpl implements QrService {
     public QrMenuResponse getMenu() {
         List<QrMenuItem> activeItems = menuItemRepository.findByIsActive(true);
 
-        // Tính foodCost cho tất cả món trong một query
-        Set<Long> itemIds = activeItems.stream()
-                .map(QrMenuItem::getId)
-                .collect(Collectors.toSet());
-
-        Map<Long, Double> foodCostMap = recipeIngredientRepository
-                .findFoodCostsByMenuItemIds(itemIds)
-                .stream()
-                .collect(Collectors.toMap(
-                        row -> ((Number) row[0]).longValue(),
-                        row -> row[1] != null ? ((Number) row[1]).doubleValue() : 0.0
-                ));
-
-        Map<Long, Integer> canServeMap = recipeIngredientRepository
-                .findCanServeByMenuItemIds(itemIds)
-                .stream()
-                .collect(Collectors.toMap(
-                        row -> ((Number) row[0]).longValue(),
-                        row -> row[1] != null ? ((Number) row[1]).intValue() : 0
-                ));
-
         Map<String, List<QrMenuItem>> itemsByCategory = activeItems.stream()
                 .collect(Collectors.groupingBy(QrMenuItem::getCategory));
 
@@ -127,13 +88,11 @@ public class QrServiceImpl implements QrService {
                             .map(item -> new QrMenuResponse.ItemDto(
                                     item.getId(),
                                     item.getName(),
-                                    computePrice(item, foodCostMap.getOrDefault(item.getId(), 0.0)),
+                                    item.getPrice(),
                                     item.getImageUrl(),
-                                    item.getDescription(),
-                                    canServeMap.getOrDefault(item.getId(), 99)
+                                    item.getDescription()
                             ))
                             .collect(Collectors.toList());
-
                     return new QrMenuResponse.CategoryDto(null, entry.getKey(), itemDtos);
                 })
                 .collect(Collectors.toList());
@@ -168,28 +127,29 @@ public class QrServiceImpl implements QrService {
         for (QrOrderRequest.OrderItemDto itemDto : request.getItems()) {
             QrMenuItem menuItem = menuItemRepository.findById(itemDto.getItemId())
                     .orElseThrow(() -> new RuntimeException("Menu item not found: " + itemDto.getItemId()));
-            Long mainItemId = menuModuleItemRepository.getReferenceById(menuItem.getId()).getId();
 
-            // Merge into existing DRAFT row with same item, don't create duplicate
-            Optional<QrOrderItem> existingDraft = orderItemRepository.findByOrderId(order.getOrderId())
+            double unitPrice = menuItem.getPrice() == null ? 0.0 : menuItem.getPrice();
+            double subtotal = unitPrice * itemDto.getQuantity();
+
+            // Merge into existing CONFIRMED row with same item, don't create duplicate
+            Optional<QrOrderItem> existingItem = orderItemRepository.findByOrderId(order.getOrderId())
                     .stream()
-                    .filter(i -> i.getItemId() != null && i.getItemId().equals(mainItemId) && "DRAFT".equals(i.getItemStatus()))
+                    .filter(i -> i.getItemId() != null && i.getItemId().equals(menuItem.getId()) && "CONFIRMED".equals(i.getItemStatus()))
                     .findFirst();
 
-            if (existingDraft.isPresent()) {
-                QrOrderItem existing = existingDraft.get();
+            if (existingItem.isPresent()) {
+                QrOrderItem existing = existingItem.get();
                 existing.setQuantity(existing.getQuantity() + itemDto.getQuantity());
                 existing.setSubtotal(existing.getUnitPrice() * existing.getQuantity());
                 orderItemRepository.save(existing);
             } else {
-                Double foodCost = recipeIngredientRepository.findFoodCostByMenuItemId(menuItem.getId());
-                double unitPrice = computePrice(menuItem, foodCost != null ? foodCost : 0.0);
                 QrOrderItem orderItem = new QrOrderItem();
                 orderItem.setOrderId(order.getOrderId());
-                orderItem.setItemId(mainItemId);
+                orderItem.setItemId(menuItem.getId());
                 orderItem.setQuantity(itemDto.getQuantity());
                 orderItem.setUnitPrice(unitPrice);
-                orderItem.setSubtotal(unitPrice * itemDto.getQuantity());
+                orderItem.setSubtotal(subtotal);
+                orderItem.setItemStatus("CONFIRMED");
                 orderItemRepository.save(orderItem);
             }
         }
@@ -202,13 +162,8 @@ public class QrServiceImpl implements QrService {
     public QrOrderResponse getOrderStatus(Long orderId) {
         QrOrder order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
-
         List<QrOrderItem> items = orderItemRepository.findByOrderId(orderId);
-
-        double totalAmount = items.stream()
-                .mapToDouble(QrOrderItem::getSubtotal)
-                .sum();
-
+        double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
         return buildOrderResponse(order, items, totalAmount);
     }
 
@@ -218,9 +173,7 @@ public class QrServiceImpl implements QrService {
         List<QrOrder> orders = orderRepository.findAllByOrderByCreatedAtDesc();
         if (orders.isEmpty()) return List.of();
 
-        List<Long> orderIds = orders.stream()
-                .map(QrOrder::getOrderId)
-                .collect(Collectors.toList());
+        List<Long> orderIds = orders.stream().map(QrOrder::getOrderId).collect(Collectors.toList());
 
         Map<Long, List<QrOrderItem>> itemsByOrderId = orderItemRepository.findByOrderIdIn(orderIds)
                 .stream()
@@ -233,7 +186,9 @@ public class QrServiceImpl implements QrService {
                 .collect(Collectors.toList());
         Map<Long, String> tableNameById = diningTableRepository.findAllById(tableIds)
                 .stream()
-                .collect(Collectors.toMap(QrDiningTable::getId, t -> t.getTableName() != null ? t.getTableName() : "Bàn " + t.getId()));
+                .collect(Collectors.toMap(
+                        QrDiningTable::getId,
+                        t -> t.getTableName() != null ? t.getTableName() : "Bàn " + t.getId()));
 
         List<Long> reservationIds = orders.stream()
                 .map(QrOrder::getReservationId)
@@ -242,9 +197,10 @@ public class QrServiceImpl implements QrService {
                 .collect(Collectors.toList());
         Map<Long, String> guestNameByReservationId = reservationRepository.findAllById(reservationIds)
                 .stream()
-                .collect(Collectors.toMap(r -> r.getReservationId(), r -> r.getFullName() != null ? r.getFullName() : ""));
+                .collect(Collectors.toMap(
+                        r -> r.getReservationId(),
+                        r -> r.getFullName() != null ? r.getFullName() : ""));
 
-        // Fallback: orders without reservationId → lookup by tableId (CONFIRMED or ARRIVED)
         List<Long> tableIdsWithoutReservation = orders.stream()
                 .filter(o -> o.getReservationId() == null && o.getTableId() != null)
                 .map(QrOrder::getTableId)
@@ -265,15 +221,15 @@ public class QrServiceImpl implements QrService {
                 .map(order -> {
                     List<QrOrderItem> items = itemsByOrderId.getOrDefault(order.getOrderId(), List.of());
                     double total = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
-                    boolean anyDraft = items.stream().anyMatch(i -> "DRAFT".equals(i.getItemStatus()));
+                    boolean anyDraft     = items.stream().anyMatch(i -> "DRAFT".equals(i.getItemStatus()));
                     boolean anyPreparing = items.stream().anyMatch(i -> "PREPARING".equals(i.getItemStatus()));
-                    boolean anyReady = items.stream().anyMatch(i -> "READY".equals(i.getItemStatus()));
-                    boolean allDone = !items.isEmpty() && items.stream()
+                    boolean anyReady     = items.stream().anyMatch(i -> "READY".equals(i.getItemStatus()));
+                    boolean allDone      = !items.isEmpty() && items.stream()
                             .allMatch(i -> "SERVED".equals(i.getItemStatus()) || "CANCELLED".equals(i.getItemStatus()));
-                    String serviceStatus = allDone ? "SERVED"
-                            : anyDraft ? "HAS_DRAFT"
+                    String serviceStatus = allDone      ? "SERVED"
+                            : anyDraft     ? "HAS_DRAFT"
                             : anyPreparing ? "PREPARING"
-                            : anyReady ? "READY"
+                            : anyReady     ? "READY"
                             : "OPEN";
                     String tableName = order.getTableId() != null
                             ? tableNameById.getOrDefault(order.getTableId(), "Bàn " + order.getTableId())
@@ -406,11 +362,10 @@ public class QrServiceImpl implements QrService {
     @Transactional
     public QrOrderResponse addItem(Long orderId, Long menuItemId, Integer quantity) {
         QrOrder order = requireOpenOrder(orderId);
-        Long mainItemId = menuModuleItemRepository.getReferenceById(menuItemId).getId();
 
         // Merge into existing DRAFT row with same item instead of adding a new row
         Optional<QrOrderItem> existingDraft = orderItemRepository.findByOrderId(orderId).stream()
-                .filter(i -> i.getItemId().equals(mainItemId) && "DRAFT".equals(i.getItemStatus()))
+                .filter(i -> i.getItemId().equals(menuItemId) && "DRAFT".equals(i.getItemStatus()))
                 .findFirst();
 
         if (existingDraft.isPresent()) {
@@ -421,12 +376,11 @@ public class QrServiceImpl implements QrService {
         } else {
             QrMenuItem qrItem = menuItemRepository.findById(menuItemId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Menu item not found"));
-            Double foodCost = recipeIngredientRepository.findFoodCostByMenuItemId(menuItemId);
-            double unitPrice = computePrice(qrItem, foodCost != null ? foodCost : 0.0);
+            double unitPrice = qrItem.getPrice() == null ? 0.0 : qrItem.getPrice();
 
             QrOrderItem item = new QrOrderItem();
             item.setOrderId(orderId);
-            item.setItemId(mainItemId);
+            item.setItemId(menuItemId);
             item.setQuantity(quantity);
             item.setUnitPrice(unitPrice);
             item.setSubtotal(unitPrice * quantity);
@@ -445,9 +399,6 @@ public class QrServiceImpl implements QrService {
         if (!"DRAFT".equals(item.getItemStatus()) && !"CONFIRMED".equals(item.getItemStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only DRAFT or CONFIRMED items can be edited");
         }
-        if ("CONFIRMED".equals(item.getItemStatus()) && !quantity.equals(item.getQuantity())) {
-            adjustInventory(item, quantity);
-        }
         item.setQuantity(quantity);
         item.setSubtotal(item.getUnitPrice() * quantity);
         item.setNote(note != null && !note.isBlank() ? note.strip() : null);
@@ -463,7 +414,6 @@ public class QrServiceImpl implements QrService {
         if ("DRAFT".equals(item.getItemStatus())) {
             orderItemRepository.delete(item);
         } else if ("CONFIRMED".equals(item.getItemStatus())) {
-            restoreInventory(item);
             item.setItemStatus("CANCELLED");
             orderItemRepository.save(item);
         } else {
@@ -483,7 +433,9 @@ public class QrServiceImpl implements QrService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "No draft items to submit");
         }
         for (QrOrderItem item : drafts) {
-            submitItem(item);
+            item.setItemStatus("CONFIRMED");
+            item.setSubmittedAt(LocalDateTime.now());
+            orderItemRepository.save(item);
         }
         reservationRepository.findByTableIdAndStatus(order.getTableId(), ReservationStatus.CONFIRMED)
                 .ifPresent(reservation -> {
@@ -524,66 +476,6 @@ public class QrServiceImpl implements QrService {
         return buildOrderResponse(order, items, total);
     }
 
-    private void submitItem(QrOrderItem item) {
-        MenuItem menuItem = menuModuleItemRepository.findById(item.getItemId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "Menu item not found: " + item.getItemId()));
-        List<RecipeIngredient> recipe = menuItem.getRecipeIngredients();
-        if (recipe.isEmpty())
-            throw new ResponseStatusException(HttpStatus.CONFLICT, menuItem.getName() + " has no recipe");
-
-        for (RecipeIngredient ri : recipe) {
-            InventoryItem inv = inventoryRepository.findByIdForUpdate(ri.getInventoryItem().getId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Inventory item not found"));
-            double required = ri.getRequiredQuantity() * item.getQuantity();
-            double available = inv.getQuantity() - inv.getReservedQuantity();
-            if (!Boolean.TRUE.equals(inv.getIsActive()) || available + EPSILON < required)
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Not enough inventory for: " + inv.getItemName());
-            inv.setQuantity(inv.getQuantity() - required);
-        }
-        item.setItemStatus("CONFIRMED");
-        item.setSubmittedAt(LocalDateTime.now());
-        orderItemRepository.save(item);
-    }
-
-    private void restoreInventory(QrOrderItem item) {
-        menuModuleItemRepository.findById(item.getItemId()).ifPresent(menuItem ->
-                menuItem.getRecipeIngredients().forEach(ri ->
-                        inventoryRepository.findByIdForUpdate(ri.getInventoryItem().getId())
-                                .ifPresent(inv -> inv.setQuantity(
-                                        inv.getQuantity() + ri.getRequiredQuantity() * item.getQuantity()))));
-    }
-
-    private void adjustInventory(QrOrderItem item, int newQty) {
-        int oldQty = item.getQuantity();
-        int delta = newQty - oldQty;
-        menuModuleItemRepository.findById(item.getItemId()).ifPresent(menuItem -> {
-            for (RecipeIngredient ri : menuItem.getRecipeIngredients()) {
-                InventoryItem inv = inventoryRepository.findByIdForUpdate(ri.getInventoryItem().getId())
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                                "Inventory item not found"));
-                double change = ri.getRequiredQuantity() * Math.abs(delta);
-                if (delta > 0) {
-                    double available = inv.getQuantity() - inv.getReservedQuantity();
-                    if (available + EPSILON < change)
-                        throw new ResponseStatusException(HttpStatus.CONFLICT,
-                                "Not enough inventory for: " + inv.getItemName());
-                    inv.setQuantity(inv.getQuantity() - change);
-                } else {
-                    inv.setQuantity(inv.getQuantity() + change);
-                }
-            }
-        });
-    }
-
-    // suggestedPrice = ceil(foodCost * (1 + margin/100) / 1000) * 1000
-    private double computePrice(QrMenuItem item, double foodCost) {
-        double margin = item.getProfitMarginPercent() == null ? 0.0 : item.getProfitMarginPercent().doubleValue();
-        double raw = foodCost * (1.0 + margin / 100.0);
-        return Math.ceil(raw / 1000.0) * 1000.0;
-    }
-
     private QrOrderResponse buildOrderResponse(QrOrder order, List<QrOrderItem> items, double totalAmount) {
         List<QrOrderResponse.OrderItemDto> itemDtos = items.stream()
                 .map(item -> {
@@ -594,13 +486,11 @@ public class QrServiceImpl implements QrService {
                     dto.setUnitPrice(item.getUnitPrice());
                     dto.setSubtotal(item.getSubtotal());
                     dto.setItemStatus(item.getItemStatus());
-
                     menuItemRepository.findById(item.getItemId()).ifPresent(mi -> {
                         dto.setItemName(mi.getName());
                         dto.setItemImageUrl(mi.getImageUrl());
                     });
                     dto.setNote(item.getNote());
-
                     return dto;
                 })
                 .collect(Collectors.toList());
@@ -613,7 +503,6 @@ public class QrServiceImpl implements QrService {
         response.setItems(itemDtos);
         response.setTotalAmount(totalAmount);
         response.setCreatedAt(order.getCreatedAt());
-
         return response;
     }
 }
