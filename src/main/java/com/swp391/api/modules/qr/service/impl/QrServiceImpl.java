@@ -5,6 +5,9 @@ import com.swp391.api.modules.inventory.repository.InventoryRepository;
 import com.swp391.api.modules.menu.entity.MenuItem;
 import com.swp391.api.modules.menu.entity.RecipeIngredient;
 import com.swp391.api.modules.menu.repository.MenuItemRepository;
+import com.swp391.api.modules.order.entity.OrderStatus;
+import com.swp391.api.modules.order.entity.RestaurantOrder;
+import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.order.service.OrderService;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import com.swp391.api.modules.reservation.repository.ReservationRepository;
@@ -41,6 +44,7 @@ public class QrServiceImpl implements QrService {
     private final OrderService orderService;
     private final ReservationRepository reservationRepository;
     private final QrDiningTableRepository diningTableRepository;
+    private final OrderRepository restaurantOrderRepository;
 
     public QrServiceImpl(
             QrSessionRepository sessionRepository,
@@ -52,7 +56,8 @@ public class QrServiceImpl implements QrService {
             InventoryRepository inventoryRepository,
             OrderService orderService,
             ReservationRepository reservationRepository,
-            QrDiningTableRepository diningTableRepository) {
+            QrDiningTableRepository diningTableRepository,
+            OrderRepository restaurantOrderRepository) {
         this.sessionRepository = sessionRepository;
         this.menuItemRepository = menuItemRepository;
         this.recipeIngredientRepository = recipeIngredientRepository;
@@ -63,6 +68,7 @@ public class QrServiceImpl implements QrService {
         this.orderService = orderService;
         this.reservationRepository = reservationRepository;
         this.diningTableRepository = diningTableRepository;
+        this.restaurantOrderRepository = restaurantOrderRepository;
     }
 
     @Override
@@ -294,12 +300,52 @@ public class QrServiceImpl implements QrService {
     @Override
     @Transactional(readOnly = true)
     public Optional<QrOrderResponse> getActiveOrder(Long tableId) {
-        return orderRepository.findFirstByTableIdAndStatus(tableId, "OPEN")
-                .map(order -> {
-                    List<QrOrderItem> items = orderItemRepository.findByOrderId(order.getOrderId());
-                    double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
-                    return buildOrderResponse(order, items, totalAmount);
-                });
+        // QR order takes priority
+        Optional<QrOrder> qrOrder = orderRepository.findFirstByTableIdAndStatus(tableId, "OPEN");
+        if (qrOrder.isPresent()) {
+            return qrOrder.map(order -> {
+                List<QrOrderItem> items = orderItemRepository.findByOrderId(order.getOrderId());
+                double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
+                return buildOrderResponse(order, items, totalAmount);
+            });
+        }
+
+        // Fallback: staff-created (RE) order linked via reservation
+        return reservationRepository.findActiveReservationByTableId(tableId)
+                .or(() -> reservationRepository.findReservedReservationByTableId(tableId))
+                .flatMap(r -> restaurantOrderRepository.findByReservationReservationId(r.getReservationId()))
+                .filter(o -> o.getStatus() == OrderStatus.OPEN)
+                .map(o -> buildOrderResponseFromRestaurantOrder(o, tableId));
+    }
+
+    private QrOrderResponse buildOrderResponseFromRestaurantOrder(RestaurantOrder order, Long tableId) {
+        List<QrOrderResponse.OrderItemDto> itemDtos = order.getItems().stream()
+                .map(item -> {
+                    QrOrderResponse.OrderItemDto dto = new QrOrderResponse.OrderItemDto();
+                    dto.setOrderItemId(item.getId());
+                    dto.setItemId(item.getMenuItem() != null ? item.getMenuItem().getId() : null);
+                    dto.setItemName(item.getMenuItemName());
+                    dto.setItemImageUrl(item.getMenuItemImageUrl());
+                    dto.setQuantity(item.getQuantity());
+                    dto.setUnitPrice(item.getUnitPrice() != null ? item.getUnitPrice().doubleValue() : 0.0);
+                    dto.setSubtotal(item.getSubtotal() != null ? item.getSubtotal().doubleValue() : 0.0);
+                    dto.setItemStatus(item.getStatus() != null ? item.getStatus().name() : "DRAFT");
+                    dto.setNote(item.getNote());
+                    return dto;
+                })
+                .collect(Collectors.toList());
+
+        double totalAmount = itemDtos.stream().mapToDouble(QrOrderResponse.OrderItemDto::getSubtotal).sum();
+
+        QrOrderResponse response = new QrOrderResponse();
+        response.setOrderId(order.getId());
+        response.setOrderCode(order.getOrderCode());
+        response.setTableId(tableId);
+        response.setStatus(order.getStatus().name());
+        response.setItems(itemDtos);
+        response.setTotalAmount(totalAmount);
+        response.setCreatedAt(order.getCreatedAt());
+        return response;
     }
 
     @Override
