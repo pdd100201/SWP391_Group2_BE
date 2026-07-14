@@ -3,11 +3,9 @@ package com.swp391.api.modules.menu.entity;
 import com.swp391.api.modules.user.entity.BaseAuditableEntity;
 import jakarta.persistence.*;
 
-import java.util.ArrayList;
-import java.util.List;
 
 @Entity
-@Table(name = "inventory_linked_menu_items")
+@Table(name = "restaurant_menu_items")
 public class MenuItem extends BaseAuditableEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -35,18 +33,6 @@ public class MenuItem extends BaseAuditableEntity {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
-    @OneToMany(mappedBy = "menuItem", cascade = CascadeType.ALL, orphanRemoval = true)
-    @OrderBy("id asc")
-    private List<RecipeIngredient> recipeIngredients = new ArrayList<>();
-
-    public void replaceRecipe(List<RecipeIngredient> ingredients) {
-        recipeIngredients.clear();
-        ingredients.forEach(ingredient -> {
-            ingredient.setMenuItem(this);
-            recipeIngredients.add(ingredient);
-        });
-    }
-
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getName() { return name; }
@@ -66,5 +52,4 @@ public class MenuItem extends BaseAuditableEntity {
     public void setPrice(Double price) { this.price = price; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean active) { isActive = active; }
-    public List<RecipeIngredient> getRecipeIngredients() { return recipeIngredients; }
 }

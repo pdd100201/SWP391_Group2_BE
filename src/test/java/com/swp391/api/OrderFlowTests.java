@@ -3,8 +3,6 @@ package com.swp391.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.swp391.api.modules.inventory.entity.InventoryItem;
-import com.swp391.api.modules.inventory.repository.InventoryRepository;
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
 import com.swp391.api.modules.menu.service.MenuService;
 import com.swp391.api.modules.order.dto.AddOrderItemRequest;
@@ -36,7 +34,6 @@ import org.springframework.transaction.annotation.Transactional;
 class OrderFlowTests {
     @Autowired private OrderService orderService;
     @Autowired private MenuService menuService;
-    @Autowired private InventoryRepository inventoryRepository;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private TableRepository tableRepository;
     @Autowired private CustomerRepository customerRepository;
@@ -56,14 +53,11 @@ class OrderFlowTests {
     }
 
     @Test
-    void submitDeductsInventoryAndCancellingConfirmedItemRestoresIt() {
+    void submitAndCancelOrderItemFlow() {
         MenuItemResponse dish = menuService.getAll().stream()
                 .filter(item -> item.getName().equals("Fresh Garden Salad"))
                 .findFirst()
                 .orElseThrow();
-        InventoryItem lettuce = inventoryRepository.findByItemNameIgnoreCase("Lettuce").orElseThrow();
-        Long inventoryId = lettuce.getId();
-        double quantityBefore = lettuce.getQuantity();
 
         Customer customer = new Customer();
         customer.setCustomersEmail("order-flow-test-" + System.nanoTime() + "@example.com");
@@ -101,13 +95,7 @@ class OrderFlowTests {
 
         assertEquals(OrderItemStatus.CONFIRMED, order.items().get(0).status());
         assertTrue(order.items().get(0).unitPrice().compareTo(java.math.BigDecimal.valueOf(dish.getPrice())) == 0);
-        double expectedDeduction = 0.15 * 2;
-        InventoryItem afterSubmit = inventoryRepository.findById(inventoryId).orElseThrow();
-        assertEquals(quantityBefore - expectedDeduction, afterSubmit.getQuantity(), 0.000001);
-
         orderService.removeItem(order.id(), order.items().get(0).id());
-        InventoryItem afterCancel = inventoryRepository.findById(inventoryId).orElseThrow();
-        assertEquals(quantityBefore, afterCancel.getQuantity(), 0.000001);
 
         orderService.cancel(order.id());
         assertEquals(

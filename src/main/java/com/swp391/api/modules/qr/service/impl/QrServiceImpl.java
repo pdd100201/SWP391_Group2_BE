@@ -72,8 +72,7 @@ public class QrServiceImpl implements QrService {
                                     item.getName(),
                                     item.getPrice(),
                                     item.getImageUrl(),
-                                    item.getDescription(),
-                                    99
+                                    item.getDescription()
                             ))
                             .collect(Collectors.toList());
 
