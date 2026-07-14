@@ -51,9 +51,9 @@ public class TableSeeder implements CommandLineRunner {
         // Chỉ seed khi bảng trống - tránh thêm trùng khi restart server
         if (tableRepository.count() > 0) return; // Already seeded
 
-        TableType mainHall = findOrCreateType("Main Hall", 6);
-        TableType vipRoom = findOrCreateType("VIP Room", 10);
-        TableType patio = findOrCreateType("Patio", 6);
+        TableType mainHall = findOrCreateType("Main Hall");
+        TableType vipRoom = findOrCreateType("VIP Room");
+        TableType patio = findOrCreateType("Patio");
 
         List<RestaurantTable> tables = List.of(
             // ── Khu vực Main Hall (Sảnh chính) ────────────────────────────────
@@ -90,13 +90,11 @@ public class TableSeeder implements CommandLineRunner {
      * @param capacity    Sức chứa (số ghế)
      * @return Entity RestaurantTable đã được điền dữ liệu (chưa lưu DB)
      */
-    private TableType findOrCreateType(String typeName, int capacity) {
+    private TableType findOrCreateType(String typeName) {
         return tableTypeRepository.findByTypeNameIgnoreCase(typeName)
             .orElseGet(() -> {
                 TableType tableType = new TableType();
                 tableType.setTypeName(typeName);
-                tableType.setCapacity(capacity);
-                tableType.setStatus("ACTIVE");
                 return tableTypeRepository.save(tableType);
             });
     }

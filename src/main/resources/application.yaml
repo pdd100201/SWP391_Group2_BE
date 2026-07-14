@@ -6,7 +6,7 @@ spring:
   datasource:
     url: jdbc:mysql://127.0.0.1:3306/restaurant_management_system?createDatabaseIfNotExist=true
     username: root
-    password: Thangvip123*
+    password: abc123
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -27,14 +27,6 @@ spring:
 jwt:
   secret: c3VwZXJfc2VjcmV0X2tleV9mb3JfcmVzdGF1cmFudF9tYW5hZ2VtZW50X3N5c3RlbV8yMDI0X3N3cDM5MQ==
   expiration: 86400000
-
-vnpay:
-  tmn-code: UZAX4AV4
-  hash-secret: S6B1WR91YOK5OYGCESPEBNFFSYILJQBA
-  pay-url: https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
-  return-url: http://localhost:8080/api/payments/vnpay/return
-  ipn-url: http://localhost:8080/api/payments/vnpay/ipn
-  frontend-return-url: http://localhost:5173/dashboard/orders-service
 
 payment:
   sepay:

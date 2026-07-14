@@ -28,12 +28,6 @@ public class TableType {
     @Column(name = "type_name", nullable = false, unique = true)
     private String typeName;
 
-    @Column(name = "capacity", nullable = false)
-    private Integer capacity = 1;
-
-    @Column(name = "status")
-    private String status = "ACTIVE";
-
     // ============= Constructors =============
 
     public TableType() {
@@ -60,21 +54,5 @@ public class TableType {
 
     public void setTypeName(String typeName) {
         this.typeName = typeName;
-    }
-
-    public Integer getCapacity() {
-        return capacity;
-    }
-
-    public void setCapacity(Integer capacity) {
-        this.capacity = capacity;
-    }
-
-    public String getStatus() {
-        return status;
-    }
-
-    public void setStatus(String status) {
-        this.status = status;
     }
 }
