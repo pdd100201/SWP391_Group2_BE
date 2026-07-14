@@ -27,11 +27,14 @@ public class QrOrder {
     @Column(name = "created_by")
     private Long createdBy;
 
+    @Column(name = "order_code", unique = true, length = 40)
+    private String orderCode;
+
     @Column(name = "order_type")
     private String orderType;
 
     @Column(name = "status")
-    private String status;
+    private String status = "OPEN";
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -56,6 +59,9 @@ public class QrOrder {
 
     public Long getCreatedBy() { return createdBy; }
     public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
+
+    public String getOrderCode() { return orderCode; }
+    public void setOrderCode(String orderCode) { this.orderCode = orderCode; }
 
     public String getOrderType() { return orderType; }
     public void setOrderType(String orderType) { this.orderType = orderType; }
