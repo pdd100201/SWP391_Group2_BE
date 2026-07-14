@@ -10,7 +10,6 @@ import com.swp391.api.modules.order.service.OrderService;
 import com.swp391.api.modules.payment.service.PaymentService;
 import jakarta.validation.Valid;
 import java.util.List;
-import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -103,22 +102,16 @@ public class OrderController {
 
     @PatchMapping("/{orderId}/payment")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
-    public ResponseEntity<?> createOrderPayment(@PathVariable Long orderId) {
-        try {
-            paymentService.createSepayPayment(orderId);
-            return ResponseEntity.status(HttpStatus.CREATED).body(orderService.getById(orderId));
-        } catch (Exception ex) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "message", ex.getMessage() == null ? "Payment failed" : ex.getMessage(),
-                    "errorClass", ex.getClass().getName()
-            ));
-        }
+    public ResponseEntity<OrderResponse> createOrderPayment(@PathVariable Long orderId) {
+        paymentService.createSepayPayment(orderId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.getById(orderId));
     }
 
-    @PatchMapping("/{orderId}/payment-test")
+    @PatchMapping("/{orderId}/payment/cash")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
-    public ResponseEntity<Map<String, Object>> testOrderPayment(@PathVariable Long orderId) {
-        return ResponseEntity.ok(Map.of("ok", true, "orderId", orderId));
+    public ResponseEntity<OrderResponse> createCashPayment(@PathVariable Long orderId) {
+        paymentService.createCashPayment(orderId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.getById(orderId));
     }
 
     @PatchMapping("/{orderId}/promotion")

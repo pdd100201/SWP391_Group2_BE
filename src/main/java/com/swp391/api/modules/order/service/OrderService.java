@@ -82,8 +82,8 @@ public class OrderService {
         User waiter = currentUserRequired();
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getReservationId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
-        if (reservation.getStatus() != ReservationStatus.ARRIVED && reservation.getStatus() != ReservationStatus.CONFIRMED) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only confirmed or checked-in reservations can open an order");
+        if (reservation.getStatus() != ReservationStatus.ARRIVED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation must be checked in before opening an order");
         }
         Long assignedTableId = resolvePrimaryTableId(reservation);
         if (assignedTableId == null) {
@@ -508,13 +508,20 @@ public class OrderService {
     }
 
     private void updateAssignedTableStatus(Reservation reservation, RestaurantTable.TableStatus status) {
-        Long tableId = resolvePrimaryTableId(reservation);
-        if (tableId == null) return;
-        tableRepository.findByIdForUpdate(tableId).ifPresent(table -> {
+        List<Long> tableIds = findAssignedTables(reservation).stream()
+                .map(RestaurantTable::getId)
+                .distinct()
+                .toList();
+        if (tableIds.isEmpty()) return;
+
+        List<RestaurantTable> updatedTables = new java.util.ArrayList<>();
+        tableIds.forEach(tableId -> tableRepository.findByIdForUpdate(tableId).ifPresent(table -> {
             if (Boolean.TRUE.equals(table.getIsActive())) {
                 table.setStatus(status);
+                updatedTables.add(table);
             }
-        });
+        }));
+        tableRepository.saveAll(updatedTables);
     }
 
     private Long resolvePrimaryTableId(Reservation reservation) {

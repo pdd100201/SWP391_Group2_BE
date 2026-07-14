@@ -8,6 +8,8 @@ import java.util.Map;
 public interface PaymentService {
     PaymentResponse createSepayPayment(Long orderId);
 
+    PaymentResponse createCashPayment(Long orderId);
+
     PaymentResponse getLatestPayment(Long orderId);
 
     Map<String, Boolean> handleSepayWebhook(SepayWebhookRequest request);
