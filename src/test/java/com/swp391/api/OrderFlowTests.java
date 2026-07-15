@@ -10,6 +10,7 @@ import com.swp391.api.modules.order.dto.AddOrderItemRequest;
 import com.swp391.api.modules.order.dto.CreateOrderRequest;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.entity.OrderItemStatus;
+import com.swp391.api.modules.order.repository.OrderItemRepository;
 import com.swp391.api.modules.order.service.OrderService;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
@@ -34,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class OrderFlowTests {
     @Autowired private OrderService orderService;
+    @Autowired private OrderItemRepository orderItemRepository;
     @Autowired private MenuService menuService;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private TableRepository tableRepository;
@@ -113,6 +115,14 @@ class OrderFlowTests {
         assertEquals(4, order.items().get(0).quantity());
         assertEquals(OrderItemStatus.CONFIRMED, order.items().get(0).status());
         assertTrue(order.items().get(0).unitPrice().compareTo(dish.getPrice()) == 0);
+
+        // Consolidation is a response concern only: reading must preserve both submitted audit rows.
+        assertEquals(2, orderItemRepository.countByOrder_Id(orderId));
+        OrderResponse reloaded = orderService.getById(orderId);
+        assertEquals(1, reloaded.items().size());
+        assertEquals(4, reloaded.items().get(0).quantity());
+        assertEquals(2, orderItemRepository.countByOrder_Id(orderId));
+
         assertTrue(orderService.getOrders(true).stream().anyMatch(active -> active.id().equals(orderId)));
         orderService.removeItem(order.id(), order.items().get(0).id());
 

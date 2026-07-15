@@ -119,6 +119,7 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    @Transactional(readOnly = true)
     public List<OrderResponse> getOrders(boolean activeOnly) {
         List<OrderResponse> orders = orderRepository.findAllByOrderByCreatedAtDesc().stream()
                 .map(this::toResponse)
@@ -138,15 +139,18 @@ public class OrderService {
         return serviceInProgress || paymentOutstanding;
     }
 
+    @Transactional(readOnly = true)
     public OrderResponse getById(Long orderId) {
         return toResponse(findOrder(orderId));
     }
 
+    @Transactional(readOnly = true)
     public OrderResponse getByReservation(Long reservationId) {
         return toResponse(orderRepository.findByReservationReservationId(reservationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found")));
     }
 
+    @Transactional(readOnly = true)
     public OrderResponse getByToken(String token) {
         return toResponse(orderRepository.findByPublicAccessToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid")));
@@ -405,8 +409,7 @@ public class OrderService {
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {
-        consolidateOrderItems(order);
-        List<OrderItemResponse> items = order.getItems().stream().map(this::toItemResponse).toList();
+        List<OrderItemResponse> items = consolidateOrderItemResponses(order.getItems());
         BigDecimal subtotal = items.stream()
                 .filter(item -> item.status() != OrderItemStatus.CANCELLED)
                 .map(OrderItemResponse::lineTotal)
@@ -648,32 +651,62 @@ public class OrderService {
     }
 
     /**
-     * Consolidates duplicate rows already present in old orders and duplicates that become identical
-     * after submission or a status transition. Notes and snapshot prices are part of the key so that
-     * special requests and historical totals are never lost.
+     * Builds a consolidated response without changing the managed JPA collection. This method must stay
+     * side-effect free: removing an item from RestaurantOrder.items would trigger orphanRemoval and delete
+     * the corresponding audit row from the database when a read transaction is flushed.
      */
-    private void consolidateOrderItems(RestaurantOrder order) {
-        Map<OrderItemMergeKey, OrderItem> consolidated = new LinkedHashMap<>();
-        List<OrderItem> duplicates = new ArrayList<>();
+    private List<OrderItemResponse> consolidateOrderItemResponses(List<OrderItem> sourceItems) {
+        Map<OrderItemMergeKey, OrderItemResponse> consolidated = new LinkedHashMap<>();
 
-        for (OrderItem item : order.getItems()) {
+        for (OrderItem item : sourceItems) {
             OrderItemMergeKey key = new OrderItemMergeKey(
                     item.getMenuItem().getId(),
                     item.getStatus(),
                     normalize(item.getNote()),
                     normalizedPrice(item.getUnitPrice()));
-            OrderItem existing = consolidated.putIfAbsent(key, item);
+            OrderItemResponse current = toItemResponse(item);
+            OrderItemResponse existing = consolidated.get(key);
             if (existing == null) {
-                item.setNote(key.note());
+                consolidated.put(key, withNote(current, key.note()));
                 continue;
             }
 
-            existing.setQuantity(existing.getQuantity() + item.getQuantity());
-            updateSubtotal(existing);
-            duplicates.add(item);
+            consolidated.put(key, new OrderItemResponse(
+                    existing.id(),
+                    existing.menuItemId(),
+                    existing.menuItemName(),
+                    existing.menuItemImageUrl(),
+                    existing.category(),
+                    existing.unitPrice(),
+                    existing.quantity() + current.quantity(),
+                    existing.lineTotal().add(current.lineTotal()),
+                    key.note(),
+                    existing.status(),
+                    earlier(existing.submittedAt(), current.submittedAt()),
+                    earlier(existing.createdAt(), current.createdAt()),
+                    later(existing.updatedAt(), current.updatedAt())));
         }
 
-        order.getItems().removeAll(duplicates);
+        return new ArrayList<>(consolidated.values());
+    }
+
+    private OrderItemResponse withNote(OrderItemResponse item, String note) {
+        return new OrderItemResponse(
+                item.id(), item.menuItemId(), item.menuItemName(), item.menuItemImageUrl(), item.category(),
+                item.unitPrice(), item.quantity(), item.lineTotal(), note, item.status(), item.submittedAt(),
+                item.createdAt(), item.updatedAt());
+    }
+
+    private LocalDateTime earlier(LocalDateTime first, LocalDateTime second) {
+        if (first == null) return second;
+        if (second == null) return first;
+        return first.isBefore(second) ? first : second;
+    }
+
+    private LocalDateTime later(LocalDateTime first, LocalDateTime second) {
+        if (first == null) return second;
+        if (second == null) return first;
+        return first.isAfter(second) ? first : second;
     }
 
     private boolean samePrice(BigDecimal first, BigDecimal second) {
