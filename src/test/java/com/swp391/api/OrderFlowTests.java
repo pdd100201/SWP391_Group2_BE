@@ -92,9 +92,25 @@ class OrderFlowTests {
         add.setMenuItemId(dish.getId());
         add.setQuantity(2);
         order = orderService.addItem(order.id(), add);
+
+        AddOrderItemRequest addSameDraft = new AddOrderItemRequest();
+        addSameDraft.setMenuItemId(dish.getId());
+        addSameDraft.setQuantity(1);
+        order = orderService.addItem(order.id(), addSameDraft);
+
+        assertEquals(1, order.items().size());
+        assertEquals(3, order.items().get(0).quantity());
+
+        order = orderService.submit(order.id());
+        order = orderService.addItem(order.id(), addSameDraft);
+
+        // Different statuses stay separate until the new draft is submitted.
+        assertEquals(2, order.items().size());
         order = orderService.submit(order.id());
         Long orderId = order.id();
 
+        assertEquals(1, order.items().size());
+        assertEquals(4, order.items().get(0).quantity());
         assertEquals(OrderItemStatus.CONFIRMED, order.items().get(0).status());
         assertTrue(order.items().get(0).unitPrice().compareTo(dish.getPrice()) == 0);
         assertTrue(orderService.getOrders(true).stream().anyMatch(active -> active.id().equals(orderId)));
