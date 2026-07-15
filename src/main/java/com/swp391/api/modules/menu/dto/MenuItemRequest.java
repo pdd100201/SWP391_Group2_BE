@@ -1,11 +1,16 @@
 package com.swp391.api.modules.menu.dto;
 
-import jakarta.validation.constraints.DecimalMin;
+import com.swp391.api.common.validation.MaxWords;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
 
 public class MenuItemRequest {
     @NotBlank(message = "Dish name is required")
+    @Size(max = 100, message = "Dish name must not exceed 100 characters")
     private String name;
 
     @NotBlank(message = "Menu category is required")
@@ -13,12 +18,17 @@ public class MenuItemRequest {
 
     private Long categoryId;
 
+    @NotBlank(message = "Dish description is required")
+    @MaxWords(value = 200, message = "Dish description must not exceed 200 words")
     private String description;
+
+    @NotBlank(message = "Dish image is required")
     private String imageUrl;
 
     @NotNull(message = "Price is required")
-    @DecimalMin(value = "0.0", inclusive = false, message = "Price must be greater than 0")
-    private Double price;
+    @Positive(message = "Price must be a positive integer")
+    @Digits(integer = 12, fraction = 0, message = "Price must be a positive integer with at most 12 digits")
+    private BigDecimal price;
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
@@ -30,6 +40,6 @@ public class MenuItemRequest {
     public void setDescription(String description) { this.description = description; }
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
-    public Double getPrice() { return price; }
-    public void setPrice(Double price) { this.price = price; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
 }

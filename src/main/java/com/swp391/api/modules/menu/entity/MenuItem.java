@@ -2,6 +2,7 @@ package com.swp391.api.modules.menu.entity;
 
 import com.swp391.api.modules.user.entity.BaseAuditableEntity;
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 
 
 @Entity
@@ -21,14 +22,14 @@ public class MenuItem extends BaseAuditableEntity {
     @JoinColumn(name = "menu_category_id")
     private MenuCategory menuCategory;
 
-    @Column(length = 1000)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "image_url")
+    @Column(name = "image_url", nullable = false)
     private String imageUrl;
 
-    @Column(name = "price")
-    private Double price;
+    @Column(name = "price", nullable = false, precision = 19, scale = 0)
+    private BigDecimal price;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
@@ -48,8 +49,8 @@ public class MenuItem extends BaseAuditableEntity {
     public void setDescription(String description) { this.description = description; }
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
-    public Double getPrice() { return price; }
-    public void setPrice(Double price) { this.price = price; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean active) { isActive = active; }
 }

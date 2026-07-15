@@ -1,6 +1,7 @@
 package com.swp391.api.modules.qr.entity;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "restaurant_menu_items")
@@ -28,7 +29,7 @@ public class QrMenuItem {
 
     // Read-only price for QR ordering.
     @Column(name = "price", insertable = false, updatable = false)
-    private Double price;
+    private BigDecimal price;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -48,5 +49,5 @@ public class QrMenuItem {
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
 
-    public Double getPrice() { return price; }
+    public BigDecimal getPrice() { return price; }
 }
