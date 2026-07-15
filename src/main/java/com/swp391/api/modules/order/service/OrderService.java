@@ -117,10 +117,22 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrders(boolean activeOnly) {
-        List<RestaurantOrder> orders = activeOnly
-                ? orderRepository.findByStatusOrderByCreatedAtDesc(OrderStatus.OPEN)
-                : orderRepository.findAllByOrderByCreatedAtDesc();
-        return orders.stream().map(this::toResponse).toList();
+        List<OrderResponse> orders = orderRepository.findAllByOrderByCreatedAtDesc().stream()
+                .map(this::toResponse)
+                .toList();
+        if (!activeOnly) return orders;
+
+        // Active Orders chỉ chứa order vẫn đang được phục vụ hoặc chưa thanh toán.
+        // Order bị hủy luôn bị loại; Order đã phục vụ và đã thanh toán sẽ được quản lý ở lịch sử tổng.
+        return orders.stream().filter(this::isActiveOrder).toList();
+    }
+
+    private boolean isActiveOrder(OrderResponse order) {
+        if (order.status() != OrderStatus.OPEN) return false;
+        boolean serviceInProgress = !"SERVED".equals(order.serviceStatus());
+        boolean paymentOutstanding = order.total().compareTo(BigDecimal.ZERO) > 0
+                && !"PAID".equals(order.paymentStatus());
+        return serviceInProgress || paymentOutstanding;
     }
 
     @Transactional(readOnly = true)
@@ -365,10 +377,10 @@ public class OrderService {
     }
 
     private BigDecimal getMenuPrice(MenuItem item) {
-        if (item.getPrice() == null || item.getPrice() <= 0) {
+        if (item.getPrice() == null || item.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish price is not available");
         }
-        return BigDecimal.valueOf(item.getPrice()).setScale(2, RoundingMode.HALF_UP);
+        return item.getPrice().setScale(2, RoundingMode.HALF_UP);
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {

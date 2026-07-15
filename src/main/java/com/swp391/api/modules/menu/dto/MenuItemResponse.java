@@ -1,5 +1,6 @@
 package com.swp391.api.modules.menu.dto;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 public class MenuItemResponse {
@@ -9,7 +10,7 @@ public class MenuItemResponse {
     private Long categoryId;
     private String description;
     private String imageUrl;
-    private Double price;
+    private BigDecimal price;
     private Boolean isActive;
     private String availability;
     private LocalDateTime createdAt;
@@ -27,8 +28,8 @@ public class MenuItemResponse {
     public void setDescription(String description) { this.description = description; }
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
-    public Double getPrice() { return price; }
-    public void setPrice(Double price) { this.price = price; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean active) { isActive = active; }
     public String getAvailability() { return availability; }

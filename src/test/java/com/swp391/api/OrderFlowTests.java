@@ -1,6 +1,7 @@
 package com.swp391.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
@@ -79,7 +80,7 @@ class OrderFlowTests {
         reservation.setReservationDate(LocalDate.now());
         reservation.setReservationTime(LocalTime.now());
         reservation.setNumberOfGuests(2);
-        reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservation.setStatus(ReservationStatus.ARRIVED);
         reservation.setTableId(table.getId());
         reservation = reservationRepository.save(reservation);
 
@@ -92,12 +93,16 @@ class OrderFlowTests {
         add.setQuantity(2);
         order = orderService.addItem(order.id(), add);
         order = orderService.submit(order.id());
+        Long orderId = order.id();
 
         assertEquals(OrderItemStatus.CONFIRMED, order.items().get(0).status());
-        assertTrue(order.items().get(0).unitPrice().compareTo(java.math.BigDecimal.valueOf(dish.getPrice())) == 0);
+        assertTrue(order.items().get(0).unitPrice().compareTo(dish.getPrice()) == 0);
+        assertTrue(orderService.getOrders(true).stream().anyMatch(active -> active.id().equals(orderId)));
         orderService.removeItem(order.id(), order.items().get(0).id());
 
         orderService.cancel(order.id());
+        assertFalse(orderService.getOrders(true).stream().anyMatch(active -> active.id().equals(orderId)));
+        assertTrue(orderService.getOrders(false).stream().anyMatch(history -> history.id().equals(orderId)));
         assertEquals(
                 ReservationStatus.CANCELLED,
                 reservationRepository.findById(reservation.getReservationId()).orElseThrow().getStatus());
