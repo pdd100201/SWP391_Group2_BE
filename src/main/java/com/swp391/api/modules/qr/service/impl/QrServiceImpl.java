@@ -58,6 +58,11 @@ public class QrServiceImpl implements QrService {
     @Override
     @Transactional
     public QrSessionResponse createSession(Long tableId) {
+        boolean checkedIn = reservationRepository.findActiveReservationByTableId(tableId).isPresent();
+        if (!checkedIn) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "TABLE_NOT_CHECKED_IN");
+        }
+
         QrSession session = new QrSession();
         session.setTableId(tableId);
         session.setSessionToken(UUID.randomUUID().toString());
