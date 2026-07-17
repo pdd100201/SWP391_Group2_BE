@@ -125,7 +125,7 @@ public class QrServiceImpl implements QrService {
                     newOrder.setStatus("OPEN");
                     newOrder.setCreatedAt(LocalDateTime.now());
                     newOrder.setUpdatedAt(LocalDateTime.now());
-                    reservationRepository.findByTableIdAndStatus(session.getTableId(), ReservationStatus.CONFIRMED)
+                    reservationRepository.findActiveReservationByTableId(session.getTableId())
                             .ifPresent(r -> newOrder.setReservationId(r.getReservationId()));
                     return orderRepository.save(newOrder);
                 });
@@ -443,11 +443,7 @@ public class QrServiceImpl implements QrService {
             item.setSubmittedAt(LocalDateTime.now());
             orderItemRepository.save(item);
         }
-        reservationRepository.findByTableIdAndStatus(order.getTableId(), ReservationStatus.CONFIRMED)
-                .ifPresent(reservation -> {
-                    reservation.setStatus(ReservationStatus.ARRIVED);
-                    reservationRepository.save(reservation);
-                });
+        // Table is already ARRIVED (enforced by createSession gate); nothing to upgrade.
         return buildResponse(order, orderId);
     }
 
@@ -492,7 +488,7 @@ public class QrServiceImpl implements QrService {
                     dto.setUnitPrice(item.getUnitPrice());
                     dto.setSubtotal(item.getSubtotal());
                     dto.setItemStatus(item.getItemStatus());
-                    menuItemRepository.findById(item.getItemId()).ifPresent(mi -> {
+                    if (item.getItemId() != null) menuItemRepository.findById(item.getItemId()).ifPresent(mi -> {
                         dto.setItemName(mi.getName());
                         dto.setItemImageUrl(mi.getImageUrl());
                     });
