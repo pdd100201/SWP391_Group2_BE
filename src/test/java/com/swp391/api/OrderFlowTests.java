@@ -1,6 +1,7 @@
 package com.swp391.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
@@ -9,6 +10,7 @@ import com.swp391.api.modules.order.dto.AddOrderItemRequest;
 import com.swp391.api.modules.order.dto.CreateOrderRequest;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.entity.OrderItemStatus;
+import com.swp391.api.modules.order.repository.OrderItemRepository;
 import com.swp391.api.modules.order.service.OrderService;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
@@ -33,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class OrderFlowTests {
     @Autowired private OrderService orderService;
+    @Autowired private OrderItemRepository orderItemRepository;
     @Autowired private MenuService menuService;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private TableRepository tableRepository;
@@ -79,7 +82,7 @@ class OrderFlowTests {
         reservation.setReservationDate(LocalDate.now());
         reservation.setReservationTime(LocalTime.now());
         reservation.setNumberOfGuests(2);
-        reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservation.setStatus(ReservationStatus.ARRIVED);
         reservation.setTableId(table.getId());
         reservation = reservationRepository.save(reservation);
 
@@ -91,13 +94,41 @@ class OrderFlowTests {
         add.setMenuItemId(dish.getId());
         add.setQuantity(2);
         order = orderService.addItem(order.id(), add);
-        order = orderService.submit(order.id());
 
+        AddOrderItemRequest addSameDraft = new AddOrderItemRequest();
+        addSameDraft.setMenuItemId(dish.getId());
+        addSameDraft.setQuantity(1);
+        order = orderService.addItem(order.id(), addSameDraft);
+
+        assertEquals(1, order.items().size());
+        assertEquals(3, order.items().get(0).quantity());
+
+        order = orderService.submit(order.id());
+        order = orderService.addItem(order.id(), addSameDraft);
+
+        // Different statuses stay separate until the new draft is submitted.
+        assertEquals(2, order.items().size());
+        order = orderService.submit(order.id());
+        Long orderId = order.id();
+
+        assertEquals(1, order.items().size());
+        assertEquals(4, order.items().get(0).quantity());
         assertEquals(OrderItemStatus.CONFIRMED, order.items().get(0).status());
-        assertTrue(order.items().get(0).unitPrice().compareTo(java.math.BigDecimal.valueOf(dish.getPrice())) == 0);
+        assertTrue(order.items().get(0).unitPrice().compareTo(dish.getPrice()) == 0);
+
+        // Consolidation is a response concern only: reading must preserve both submitted audit rows.
+        assertEquals(2, orderItemRepository.countByOrder_Id(orderId));
+        OrderResponse reloaded = orderService.getById(orderId);
+        assertEquals(1, reloaded.items().size());
+        assertEquals(4, reloaded.items().get(0).quantity());
+        assertEquals(2, orderItemRepository.countByOrder_Id(orderId));
+
+        assertTrue(orderService.getOrders(true).stream().anyMatch(active -> active.id().equals(orderId)));
         orderService.removeItem(order.id(), order.items().get(0).id());
 
         orderService.cancel(order.id());
+        assertFalse(orderService.getOrders(true).stream().anyMatch(active -> active.id().equals(orderId)));
+        assertTrue(orderService.getOrders(false).stream().anyMatch(history -> history.id().equals(orderId)));
         assertEquals(
                 ReservationStatus.CANCELLED,
                 reservationRepository.findById(reservation.getReservationId()).orElseThrow().getStatus());

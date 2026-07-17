@@ -111,7 +111,7 @@ public class QrServiceImpl implements QrService {
             QrMenuItem menuItem = menuItemRepository.findById(itemDto.getItemId())
                     .orElseThrow(() -> new RuntimeException("Menu item not found: " + itemDto.getItemId()));
 
-            double unitPrice = menuItem.getPrice() == null ? 0.0 : menuItem.getPrice();
+            double unitPrice = menuItem.getPrice() == null ? 0.0 : menuItem.getPrice().doubleValue();
             double subtotal = unitPrice * itemDto.getQuantity();
 
             QrOrderItem orderItem = new QrOrderItem();

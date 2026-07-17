@@ -33,7 +33,11 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -117,10 +121,22 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrders(boolean activeOnly) {
-        List<RestaurantOrder> orders = activeOnly
-                ? orderRepository.findByStatusOrderByCreatedAtDesc(OrderStatus.OPEN)
-                : orderRepository.findAllByOrderByCreatedAtDesc();
-        return orders.stream().map(this::toResponse).toList();
+        List<OrderResponse> orders = orderRepository.findAllByOrderByCreatedAtDesc().stream()
+                .map(this::toResponse)
+                .toList();
+        if (!activeOnly) return orders;
+
+        // Active Orders chỉ chứa order vẫn đang được phục vụ hoặc chưa thanh toán.
+        // Order bị hủy luôn bị loại; Order đã phục vụ và đã thanh toán sẽ được quản lý ở lịch sử tổng.
+        return orders.stream().filter(this::isActiveOrder).toList();
+    }
+
+    private boolean isActiveOrder(OrderResponse order) {
+        if (order.status() != OrderStatus.OPEN) return false;
+        boolean serviceInProgress = !"SERVED".equals(order.serviceStatus());
+        boolean paymentOutstanding = order.total().compareTo(BigDecimal.ZERO) > 0
+                && !"PAID".equals(order.paymentStatus());
+        return serviceInProgress || paymentOutstanding;
     }
 
     @Transactional(readOnly = true)
@@ -162,16 +178,37 @@ public class OrderService {
     private OrderResponse addItem(RestaurantOrder order, AddOrderItemRequest request) {
         requireOpen(order);
         MenuItem menuItem = findActiveMenuItem(request.getMenuItemId());
+        BigDecimal unitPrice = getMenuPrice(menuItem);
+        String note = normalize(request.getNote());
+
+        // A repeated click for the same draft dish updates its quantity instead of creating another row.
+        OrderItem existingDraft = order.getItems().stream()
+                .filter(item -> item.getStatus() == OrderItemStatus.DRAFT)
+                .filter(item -> item.getMenuItem().getId().equals(menuItem.getId()))
+                .filter(item -> Objects.equals(normalize(item.getNote()), note))
+                .filter(item -> samePrice(item.getUnitPrice(), unitPrice))
+                .findFirst()
+                .orElse(null);
+        if (existingDraft != null) {
+            int combinedQuantity = existingDraft.getQuantity() + request.getQuantity();
+            if (combinedQuantity > 99) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Combined quantity must not exceed 99");
+            }
+            existingDraft.setQuantity(combinedQuantity);
+            updateSubtotal(existingDraft);
+            return toResponse(orderRepository.save(order));
+        }
 
         OrderItem item = new OrderItem();
         item.setMenuItem(menuItem);
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(getMenuPrice(menuItem));
+        item.setUnitPrice(unitPrice);
         item.setQuantity(request.getQuantity());
         updateSubtotal(item);
-        item.setNote(normalize(request.getNote()));
+        item.setNote(note);
         item.setStatus(OrderItemStatus.DRAFT);
         order.addItem(item);
         return toResponse(orderRepository.save(order));
@@ -365,14 +402,14 @@ public class OrderService {
     }
 
     private BigDecimal getMenuPrice(MenuItem item) {
-        if (item.getPrice() == null || item.getPrice() <= 0) {
+        if (item.getPrice() == null || item.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish price is not available");
         }
-        return BigDecimal.valueOf(item.getPrice()).setScale(2, RoundingMode.HALF_UP);
+        return item.getPrice().setScale(2, RoundingMode.HALF_UP);
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {
-        List<OrderItemResponse> items = order.getItems().stream().map(this::toItemResponse).toList();
+        List<OrderItemResponse> items = consolidateOrderItemResponses(order.getItems());
         BigDecimal subtotal = items.stream()
                 .filter(item -> item.status() != OrderItemStatus.CANCELLED)
                 .map(OrderItemResponse::lineTotal)
@@ -611,5 +648,79 @@ public class OrderService {
 
     private void updateSubtotal(OrderItem item) {
         item.setSubtotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2));
+    }
+
+    /**
+     * Builds a consolidated response without changing the managed JPA collection. This method must stay
+     * side-effect free: removing an item from RestaurantOrder.items would trigger orphanRemoval and delete
+     * the corresponding audit row from the database when a read transaction is flushed.
+     */
+    private List<OrderItemResponse> consolidateOrderItemResponses(List<OrderItem> sourceItems) {
+        Map<OrderItemMergeKey, OrderItemResponse> consolidated = new LinkedHashMap<>();
+
+        for (OrderItem item : sourceItems) {
+            OrderItemMergeKey key = new OrderItemMergeKey(
+                    item.getMenuItem().getId(),
+                    item.getStatus(),
+                    normalize(item.getNote()),
+                    normalizedPrice(item.getUnitPrice()));
+            OrderItemResponse current = toItemResponse(item);
+            OrderItemResponse existing = consolidated.get(key);
+            if (existing == null) {
+                consolidated.put(key, withNote(current, key.note()));
+                continue;
+            }
+
+            consolidated.put(key, new OrderItemResponse(
+                    existing.id(),
+                    existing.menuItemId(),
+                    existing.menuItemName(),
+                    existing.menuItemImageUrl(),
+                    existing.category(),
+                    existing.unitPrice(),
+                    existing.quantity() + current.quantity(),
+                    existing.lineTotal().add(current.lineTotal()),
+                    key.note(),
+                    existing.status(),
+                    earlier(existing.submittedAt(), current.submittedAt()),
+                    earlier(existing.createdAt(), current.createdAt()),
+                    later(existing.updatedAt(), current.updatedAt())));
+        }
+
+        return new ArrayList<>(consolidated.values());
+    }
+
+    private OrderItemResponse withNote(OrderItemResponse item, String note) {
+        return new OrderItemResponse(
+                item.id(), item.menuItemId(), item.menuItemName(), item.menuItemImageUrl(), item.category(),
+                item.unitPrice(), item.quantity(), item.lineTotal(), note, item.status(), item.submittedAt(),
+                item.createdAt(), item.updatedAt());
+    }
+
+    private LocalDateTime earlier(LocalDateTime first, LocalDateTime second) {
+        if (first == null) return second;
+        if (second == null) return first;
+        return first.isBefore(second) ? first : second;
+    }
+
+    private LocalDateTime later(LocalDateTime first, LocalDateTime second) {
+        if (first == null) return second;
+        if (second == null) return first;
+        return first.isAfter(second) ? first : second;
+    }
+
+    private boolean samePrice(BigDecimal first, BigDecimal second) {
+        return first != null && second != null && first.compareTo(second) == 0;
+    }
+
+    private BigDecimal normalizedPrice(BigDecimal price) {
+        return price == null ? null : price.stripTrailingZeros();
+    }
+
+    private record OrderItemMergeKey(
+            Long menuItemId,
+            OrderItemStatus status,
+            String note,
+            BigDecimal unitPrice) {
     }
 }
