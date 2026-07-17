@@ -17,6 +17,7 @@ import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.payment.entity.Payment;
 import com.swp391.api.modules.payment.entity.PaymentStatus;
 import com.swp391.api.modules.payment.repository.PaymentRepository;
+import com.swp391.api.modules.payment.service.PaymentService;
 import com.swp391.api.modules.promotion.entity.DiscountType;
 import com.swp391.api.modules.promotion.entity.Promotion;
 import com.swp391.api.modules.promotion.entity.PromotionStatus;
@@ -60,6 +61,7 @@ public class OrderService {
     private final MenuService menuService;
     private final PromotionRepository promotionRepository;
     private final PaymentRepository paymentRepository;
+    private final PaymentService paymentService;
 
     public OrderService(
             OrderRepository orderRepository,
@@ -69,7 +71,8 @@ public class OrderService {
             UserRepository userRepository,
             MenuService menuService,
             PromotionRepository promotionRepository,
-            PaymentRepository paymentRepository) {
+            PaymentRepository paymentRepository,
+            PaymentService paymentService) {
         this.orderRepository = orderRepository;
         this.reservationRepository = reservationRepository;
         this.tableRepository = tableRepository;
@@ -78,6 +81,7 @@ public class OrderService {
         this.menuService = menuService;
         this.promotionRepository = promotionRepository;
         this.paymentRepository = paymentRepository;
+        this.paymentService = paymentService;
     }
 
     public OrderResponse create(CreateOrderRequest request) {
@@ -337,6 +341,13 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    public OrderResponse createSepayPayment(Long orderId) {
+        RestaurantOrder order = findOrderForUpdate(orderId);
+        requireOpen(order);
+        paymentService.createSepayPayment(order.getId());
+        return toResponse(order);
+    }
+
     public OrderResponse applyPromotion(Long orderId, String code) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -467,7 +478,7 @@ public class OrderService {
                 discountAmount,
                 total,
                 payment == null ? null : payment.getId(),
-                payment == null ? null : payment.getProvider().name(),
+                payment == null ? null : payment.getProvider(),
                 payment == null ? null : payment.getStatus().name(),
                 payment == null ? null : payment.getPaymentCode(),
                 payment == null ? null : payment.getQrImageUrl(),

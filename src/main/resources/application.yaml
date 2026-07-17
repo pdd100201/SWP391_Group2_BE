@@ -23,3 +23,12 @@ spring:
 jwt:
   secret: c3VwZXJfc2VjcmV0X2tleV9mb3JfcmVzdGF1cmFudF9tYW5hZ2VtZW50X3N5c3RlbV8yMDI0X3N3cDM5MQ==
   expiration: 86400000
+
+payment:
+  sepay:
+    bank-code: ${SEPAY_BANK_CODE:}
+    account-number: ${SEPAY_ACCOUNT_NUMBER:}
+    account-name: ${SEPAY_ACCOUNT_NAME:}
+    webhook-api-key: ${SEPAY_WEBHOOK_API_KEY:}
+    transfer-prefix: ${SEPAY_TRANSFER_PREFIX:GS}
+    vietqr-template: ${SEPAY_VIETQR_TEMPLATE:compact2}

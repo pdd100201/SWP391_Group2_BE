@@ -4,9 +4,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 public record PaymentResponse(
-        InvoiceResponse invoice,
-        String paymentUrl,
-        String message) {
         Long id,
         Long orderId,
         String orderCode,
@@ -19,6 +16,5 @@ public record PaymentResponse(
         String providerTransactionId,
         LocalDateTime paidAt,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
-) {
+        LocalDateTime updatedAt) {
 }

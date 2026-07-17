@@ -10,7 +10,6 @@ import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.payment.dto.PaymentResponse;
 import com.swp391.api.modules.payment.dto.SepayWebhookRequest;
 import com.swp391.api.modules.payment.entity.Payment;
-import com.swp391.api.modules.payment.entity.PaymentProvider;
 import com.swp391.api.modules.payment.entity.PaymentStatus;
 import com.swp391.api.modules.payment.repository.PaymentRepository;
 import com.swp391.api.modules.payment.service.PaymentService;
@@ -56,6 +55,7 @@ public class PaymentServiceImpl implements PaymentService {
         if (order.getStatus() != OrderStatus.OPEN) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only open orders can be paid");
         }
+        requireAllItemsServed(order);
         BigDecimal total = calculateTotal(order);
         if (total.compareTo(BigDecimal.ZERO) <= 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order total must be greater than 0");
@@ -73,7 +73,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         Payment payment = new Payment();
         payment.setOrder(order);
-        payment.setProvider(PaymentProvider.SEPAY);
+        payment.setProvider("SEPAY");
         payment.setStatus(PaymentStatus.PENDING);
         payment.setAmount(total);
         payment.setPaymentCode(buildPaymentCode(order));
@@ -137,7 +137,7 @@ public class PaymentServiceImpl implements PaymentService {
                 payment.getId(),
                 payment.getOrder().getId(),
                 payment.getOrder().getOrderCode(),
-                payment.getProvider().name(),
+                payment.getProvider(),
                 payment.getStatus().name(),
                 payment.getAmount(),
                 payment.getPaymentCode(),
@@ -196,6 +196,19 @@ public class PaymentServiceImpl implements PaymentService {
                 .setScale(2, RoundingMode.HALF_UP);
         BigDecimal discount = calculateDiscount(order.getPromotion(), subtotal);
         return subtotal.subtract(discount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private void requireAllItemsServed(RestaurantOrder order) {
+        boolean hasServedItem = order.getItems().stream()
+                .anyMatch(item -> item.getStatus() == OrderItemStatus.SERVED);
+        boolean hasUnfinishedItem = order.getItems().stream().anyMatch(item ->
+                item.getStatus() != OrderItemStatus.SERVED
+                        && item.getStatus() != OrderItemStatus.CANCELLED);
+        if (!hasServedItem || hasUnfinishedItem) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "All non-cancelled items must be served before creating a payment");
+        }
     }
 
     private BigDecimal calculateDiscount(Promotion promotion, BigDecimal subtotal) {

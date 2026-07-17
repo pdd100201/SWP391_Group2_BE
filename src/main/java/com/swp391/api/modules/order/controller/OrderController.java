@@ -7,10 +7,8 @@ import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.dto.UpdateOrderItemRequest;
 import com.swp391.api.modules.order.dto.UpdateOrderItemStatusRequest;
 import com.swp391.api.modules.order.service.OrderService;
-import com.swp391.api.modules.payment.service.PaymentService;
 import jakarta.validation.Valid;
 import java.util.List;
-import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,25 +26,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/orders")
 @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
 public class OrderController {
-    // Staff-facing order API. The controller maps routes to service actions only.
     private final OrderService orderService;
-    private final PaymentService paymentService;
 
-    public OrderController(OrderService orderService, PaymentService paymentService) {
+    public OrderController(OrderService orderService) {
         this.orderService = orderService;
-        this.paymentService = paymentService;
     }
 
     @PostMapping
     public ResponseEntity<OrderResponse> create(@Valid @RequestBody CreateOrderRequest request) {
-        // Opens an order from a reservation that already has an assigned table.
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.create(request));
     }
 
     @GetMapping
     public ResponseEntity<List<OrderResponse>> getOrders(
             @RequestParam(name = "active", defaultValue = "false") boolean activeOnly) {
-        // active=true is used by the order workspace to show only OPEN orders.
         return ResponseEntity.ok(orderService.getOrders(activeOnly));
     }
 
@@ -63,7 +56,6 @@ public class OrderController {
     @PostMapping("/{orderId}/items")
     public ResponseEntity<OrderResponse> addItem(
             @PathVariable Long orderId, @Valid @RequestBody AddOrderItemRequest request) {
-        // Adds a draft item; inventory is deducted only when draft items are submitted.
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.addItem(orderId, request));
     }
 
@@ -82,7 +74,6 @@ public class OrderController {
 
     @PostMapping("/{orderId}/submit")
     public ResponseEntity<OrderResponse> submit(@PathVariable Long orderId) {
-        // Converts all DRAFT items to CONFIRMED and deducts inventory snapshots.
         return ResponseEntity.ok(orderService.submit(orderId));
     }
 
@@ -91,40 +82,17 @@ public class OrderController {
             @PathVariable Long orderId,
             @PathVariable Long itemId,
             @Valid @RequestBody UpdateOrderItemStatusRequest request) {
-        // Drives kitchen/service workflow: CONFIRMED -> PREPARING -> READY -> SERVED.
         return ResponseEntity.ok(orderService.updateItemStatus(orderId, itemId, request.getStatus()));
+    }
+
+    @PostMapping("/{orderId}/payment")
+    public ResponseEntity<OrderResponse> createSepayPayment(@PathVariable Long orderId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.createSepayPayment(orderId));
     }
 
     @PatchMapping("/{orderId}/close")
     public ResponseEntity<OrderResponse> close(@PathVariable Long orderId) {
         return ResponseEntity.ok(orderService.close(orderId));
-    }
-
-    @PatchMapping("/{orderId}/sepay-payment")
-    @PreAuthorize("permitAll()")
-    public ResponseEntity<OrderResponse> createSepayPayment(@PathVariable Long orderId) {
-        paymentService.createSepayPayment(orderId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.getById(orderId));
-    }
-
-    @PatchMapping("/{orderId}/payment")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
-    public ResponseEntity<?> createOrderPayment(@PathVariable Long orderId) {
-        try {
-            paymentService.createSepayPayment(orderId);
-            return ResponseEntity.status(HttpStatus.CREATED).body(orderService.getById(orderId));
-        } catch (Exception ex) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "message", ex.getMessage() == null ? "Payment failed" : ex.getMessage(),
-                    "errorClass", ex.getClass().getName()
-            ));
-        }
-    }
-
-    @PatchMapping("/{orderId}/payment-test")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
-    public ResponseEntity<Map<String, Object>> testOrderPayment(@PathVariable Long orderId) {
-        return ResponseEntity.ok(Map.of("ok", true, "orderId", orderId));
     }
 
     @PatchMapping("/{orderId}/promotion")
