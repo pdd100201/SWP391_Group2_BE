@@ -17,6 +17,10 @@ import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.payment.entity.Payment;
 import com.swp391.api.modules.payment.entity.PaymentStatus;
 import com.swp391.api.modules.payment.repository.PaymentRepository;
+import com.swp391.api.modules.qr.entity.QrOrder;
+import com.swp391.api.modules.qr.entity.QrOrderItem;
+import com.swp391.api.modules.qr.repository.QrOrderItemRepository;
+import com.swp391.api.modules.qr.repository.QrOrderRepository;
 import com.swp391.api.modules.promotion.entity.DiscountType;
 import com.swp391.api.modules.promotion.entity.Promotion;
 import com.swp391.api.modules.promotion.entity.PromotionStatus;
@@ -62,6 +66,8 @@ public class OrderService {
     private final MenuService menuService;
     private final PromotionRepository promotionRepository;
     private final PaymentRepository paymentRepository;
+    private final QrOrderRepository qrOrderRepository;
+    private final QrOrderItemRepository qrOrderItemRepository;
 
     public OrderService(
             OrderRepository orderRepository,
@@ -71,7 +77,9 @@ public class OrderService {
             UserRepository userRepository,
             MenuService menuService,
             PromotionRepository promotionRepository,
-            PaymentRepository paymentRepository) {
+            PaymentRepository paymentRepository,
+            QrOrderRepository qrOrderRepository,
+            QrOrderItemRepository qrOrderItemRepository) {
         this.orderRepository = orderRepository;
         this.reservationRepository = reservationRepository;
         this.tableRepository = tableRepository;
@@ -80,6 +88,8 @@ public class OrderService {
         this.menuService = menuService;
         this.promotionRepository = promotionRepository;
         this.paymentRepository = paymentRepository;
+        this.qrOrderRepository = qrOrderRepository;
+        this.qrOrderItemRepository = qrOrderItemRepository;
     }
 
     public OrderResponse create(CreateOrderRequest request) {
@@ -120,14 +130,122 @@ public class OrderService {
     }
 
     public List<OrderResponse> getOrders(boolean activeOnly) {
-        List<OrderResponse> orders = orderRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(this::toResponse)
-                .toList();
+        List<OrderResponse> orders = new ArrayList<>();
+        orderRepository.findAllByOrderByCreatedAtDesc().stream().map(this::toResponse).forEach(orders::add);
+        qrOrderRepository.findAllByOrderByCreatedAtDesc().stream().map(this::qrToResponse).forEach(orders::add);
+        orders.sort((a, b) -> {
+            LocalDateTime ca = a.createdAt(), cb = b.createdAt();
+            if (ca == null && cb == null) return 0;
+            if (ca == null) return 1;
+            if (cb == null) return -1;
+            return cb.compareTo(ca);
+        });
         if (!activeOnly) return orders;
 
         // Active Orders chỉ chứa order vẫn đang được phục vụ hoặc chưa thanh toán.
         // Order bị hủy luôn bị loại; Order đã phục vụ và đã thanh toán sẽ được quản lý ở lịch sử tổng.
         return orders.stream().filter(this::isActiveOrder).toList();
+    }
+
+    private OrderResponse qrToResponse(QrOrder qrOrder) {
+        List<QrOrderItem> rawItems = qrOrderItemRepository.findByOrderId(qrOrder.getOrderId());
+        List<OrderItemResponse> items = rawItems.stream().map(this::qrItemToResponse).toList();
+
+        BigDecimal subtotal = items.stream()
+                .filter(item -> item.status() != OrderItemStatus.CANCELLED)
+                .map(OrderItemResponse::lineTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        RestaurantTable table = qrOrder.getTableId() != null
+                ? tableRepository.findById(qrOrder.getTableId()).orElse(null)
+                : null;
+        String tableNumber = table == null ? null : table.getTableNumber();
+        String tableName = table == null ? null : table.getTableName();
+        List<Long> tableIds = qrOrder.getTableId() != null ? List.of(qrOrder.getTableId()) : List.of();
+        List<String> tableNumbers = tableNumber != null ? List.of(tableNumber) : List.of();
+        List<String> tableNames = tableName != null ? List.of(tableName) : List.of();
+
+        String guestName = null;
+        ReservationStatus reservationStatus = null;
+        if (qrOrder.getReservationId() != null) {
+            Reservation reservation = reservationRepository.findById(qrOrder.getReservationId()).orElse(null);
+            if (reservation != null) {
+                guestName = reservation.getFullName();
+                reservationStatus = reservation.getStatus();
+            }
+        }
+
+        OrderStatus orderStatus = switch (qrOrder.getStatus() == null ? "" : qrOrder.getStatus()) {
+            case "CLOSED" -> OrderStatus.CLOSED;
+            case "CANCELLED" -> OrderStatus.CANCELLED;
+            default -> OrderStatus.OPEN;
+        };
+
+        return new OrderResponse(
+                qrOrder.getOrderId(),
+                qrOrder.getOrderCode(),
+                qrOrder.getReservationId(),
+                guestName,
+                reservationStatus,
+                qrOrder.getTableId(),
+                tableIds,
+                tableNumber,
+                tableNumbers,
+                tableName,
+                tableNames,
+                table == null || table.getStatus() == null ? null : table.getStatus().name(),
+                null, null, null, null,
+                orderStatus,
+                qrServiceStatus(orderStatus, items),
+                qrOrder.getNote(),
+                null, null, null,
+                subtotal,
+                BigDecimal.ZERO,
+                subtotal,
+                null, null, null, null, null, null,
+                items,
+                null,
+                qrOrder.getCreatedAt(),
+                qrOrder.getUpdatedAt());
+    }
+
+    private String qrServiceStatus(OrderStatus orderStatus, List<OrderItemResponse> items) {
+        if (orderStatus != OrderStatus.OPEN) return orderStatus.name();
+        if (items.stream().anyMatch(item -> item.status() == OrderItemStatus.DRAFT)) return "HAS_DRAFT";
+        if (items.stream().anyMatch(item -> item.status() == OrderItemStatus.PREPARING)) return "PREPARING";
+        if (items.stream().anyMatch(item -> item.status() == OrderItemStatus.READY)) return "READY";
+        if (!items.isEmpty() && items.stream().allMatch(item ->
+                item.status() == OrderItemStatus.SERVED || item.status() == OrderItemStatus.CANCELLED)) {
+            return "SERVED";
+        }
+        return "OPEN";
+    }
+
+    private OrderItemResponse qrItemToResponse(QrOrderItem item) {
+        String itemName = null, imageUrl = null, category = null;
+        if (item.getItemId() != null) {
+            MenuItem mi = menuItemRepository.findById(item.getItemId()).orElse(null);
+            if (mi != null) {
+                itemName = mi.getName();
+                imageUrl = mi.getImageUrl();
+                category = mi.getCategory();
+            }
+        }
+        OrderItemStatus status;
+        try {
+            status = OrderItemStatus.valueOf(item.getItemStatus() == null ? "CONFIRMED" : item.getItemStatus());
+        } catch (IllegalArgumentException e) {
+            status = OrderItemStatus.CONFIRMED;
+        }
+        BigDecimal unitPrice = item.getUnitPrice() == null ? BigDecimal.ZERO
+                : BigDecimal.valueOf(item.getUnitPrice()).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal lineTotal = item.getSubtotal() == null ? BigDecimal.ZERO
+                : BigDecimal.valueOf(item.getSubtotal()).setScale(2, RoundingMode.HALF_UP);
+        return new OrderItemResponse(
+                item.getOrderItemId(), item.getItemId(), itemName, imageUrl, category,
+                unitPrice, item.getQuantity(), lineTotal, item.getNote(),
+                status, item.getSubmittedAt(), null, null);
     }
 
     private boolean isActiveOrder(OrderResponse order) {

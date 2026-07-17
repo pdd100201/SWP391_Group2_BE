@@ -3,6 +3,7 @@ package com.swp391.api.modules.reservation.service.impl;
 import com.swp391.api.common.exception.BusinessException;
 import com.swp391.api.modules.order.entity.OrderStatus;
 import com.swp391.api.modules.order.repository.OrderRepository;
+import com.swp391.api.modules.qr.repository.QrOrderRepository;
 import com.swp391.api.modules.reservation.dto.AssignTablesRequest;
 import com.swp391.api.modules.reservation.dto.CreateReservationRequest;
 import com.swp391.api.modules.reservation.dto.ReservationResponse;
@@ -45,17 +46,20 @@ public class ReservationServiceImpl implements ReservationService {
     private final CustomerRepository customerRepository;
     private final TableRepository tableRepository;
     private final OrderRepository orderRepository;
+    private final QrOrderRepository qrOrderRepository;
     private final ReservationAutoTableLockService reservationAutoTableLockService;
 
     public ReservationServiceImpl(ReservationRepository reservationRepository,
                                   CustomerRepository customerRepository,
                                   TableRepository tableRepository,
                                   OrderRepository orderRepository,
+                                  QrOrderRepository qrOrderRepository,
                                   ReservationAutoTableLockService reservationAutoTableLockService) {
         this.reservationRepository = reservationRepository;
         this.customerRepository = customerRepository;
         this.tableRepository = tableRepository;
         this.orderRepository = orderRepository;
+        this.qrOrderRepository = qrOrderRepository;
         this.reservationAutoTableLockService = reservationAutoTableLockService;
     }
 
@@ -349,6 +353,15 @@ public class ReservationServiceImpl implements ReservationService {
             response.setOrderCode(order.getOrderCode());
             response.setOrderStatus(order.getStatus());
         });
+        if (response.getOrderId() == null) {
+            Long tableId = resolvePrimaryTableId(reservation);
+            if (tableId != null) {
+                qrOrderRepository.findFirstByTableIdAndStatus(tableId, "OPEN").ifPresent(qrOrder -> {
+                    response.setOrderId(qrOrder.getOrderId());
+                    response.setOrderCode(qrOrder.getOrderCode());
+                });
+            }
+        }
         return response;
     }
 
