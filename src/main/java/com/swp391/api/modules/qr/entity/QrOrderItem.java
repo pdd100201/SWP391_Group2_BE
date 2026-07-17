@@ -3,7 +3,7 @@ package com.swp391.api.modules.qr.entity;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "order_items")
+@Table(name = "qr_order_items")
 public class QrOrderItem {
 
     @Id
