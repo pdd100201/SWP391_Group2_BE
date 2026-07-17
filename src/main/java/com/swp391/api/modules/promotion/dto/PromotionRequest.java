@@ -1,58 +1,39 @@
 package com.swp391.api.modules.promotion.dto;
 
-import com.swp391.api.modules.promotion.entity.PromotionType;
-import jakarta.validation.constraints.DecimalMin;
+import com.swp391.api.modules.promotion.entity.DiscountType;
+import com.swp391.api.modules.promotion.entity.PromotionStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 
-public class PromotionRequest {
-    @NotBlank
-    private String code;
+public record PromotionRequest(
+        @NotBlank(message = "Promotion code is required")
+        String code,
 
-    @NotBlank
-    private String name;
+        @NotBlank(message = "Promotion name is required")
+        String name,
 
-    @NotNull
-    private PromotionType type;
+        String description,
 
-    @NotNull
-    @DecimalMin(value = "0.01")
-    private BigDecimal value;
+        @NotNull(message = "Discount type is required")
+        DiscountType type,
 
-    @NotNull
-    private LocalDate startDate;
+        @NotNull(message = "Discount value is required")
+        BigDecimal value,
 
-    @NotNull
-    private LocalDate endDate;
+        BigDecimal minOrderAmount,
 
-    private Boolean isActive = true;
-    private BigDecimal minOrderAmount;
-    private BigDecimal maxDiscountAmount;
-    private Integer usageLimit;
-    private String description;
+        BigDecimal maxDiscountAmount,
 
-    public String getCode() { return code; }
-    public void setCode(String code) { this.code = code; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public PromotionType getType() { return type; }
-    public void setType(PromotionType type) { this.type = type; }
-    public BigDecimal getValue() { return value; }
-    public void setValue(BigDecimal value) { this.value = value; }
-    public LocalDate getStartDate() { return startDate; }
-    public void setStartDate(LocalDate startDate) { this.startDate = startDate; }
-    public LocalDate getEndDate() { return endDate; }
-    public void setEndDate(LocalDate endDate) { this.endDate = endDate; }
-    public Boolean getIsActive() { return isActive; }
-    public void setIsActive(Boolean active) { isActive = active; }
-    public BigDecimal getMinOrderAmount() { return minOrderAmount; }
-    public void setMinOrderAmount(BigDecimal minOrderAmount) { this.minOrderAmount = minOrderAmount; }
-    public BigDecimal getMaxDiscountAmount() { return maxDiscountAmount; }
-    public void setMaxDiscountAmount(BigDecimal maxDiscountAmount) { this.maxDiscountAmount = maxDiscountAmount; }
-    public Integer getUsageLimit() { return usageLimit; }
-    public void setUsageLimit(Integer usageLimit) { this.usageLimit = usageLimit; }
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
+        @NotNull(message = "Start date is required")
+        LocalDateTime startDate,
+
+        @NotNull(message = "End date is required")
+        LocalDateTime endDate,
+
+        Integer usageLimit,
+
+        PromotionStatus status
+) {
 }

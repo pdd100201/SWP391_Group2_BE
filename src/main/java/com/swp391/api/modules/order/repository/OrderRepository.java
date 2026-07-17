@@ -1,6 +1,5 @@
 package com.swp391.api.modules.order.repository;
 
-import com.swp391.api.modules.order.entity.OrderStatus;
 import com.swp391.api.modules.order.entity.RestaurantOrder;
 import jakarta.persistence.LockModeType;
 import java.util.List;
@@ -14,7 +13,6 @@ import org.springframework.data.repository.query.Param;
 public interface OrderRepository extends JpaRepository<RestaurantOrder, Long> {
     Optional<RestaurantOrder> findByReservationReservationId(Long reservationId);
     Optional<RestaurantOrder> findByPublicAccessToken(String publicAccessToken);
-    List<RestaurantOrder> findByStatusOrderByCreatedAtDesc(OrderStatus status);
     List<RestaurantOrder> findAllByOrderByCreatedAtDesc();
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

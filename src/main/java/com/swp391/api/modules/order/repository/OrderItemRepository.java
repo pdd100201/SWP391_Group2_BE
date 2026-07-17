@@ -7,4 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 // Direct order-item lookup repository; most writes still go through RestaurantOrder.
 public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     Optional<OrderItem> findByIdAndOrderId(Long id, Long orderId);
+    long countByOrder_Id(Long orderId);
 }

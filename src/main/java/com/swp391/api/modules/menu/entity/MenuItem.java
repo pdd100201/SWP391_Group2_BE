@@ -2,12 +2,11 @@ package com.swp391.api.modules.menu.entity;
 
 import com.swp391.api.modules.user.entity.BaseAuditableEntity;
 import jakarta.persistence.*;
-
 import java.math.BigDecimal;
 
+
 @Entity
-@Table(name = "inventory_linked_menu_items")
-// Dữ liệu gốc của món: danh mục, nguyên liệu công thức, biên lợi nhuận và trạng thái hoạt động.
+@Table(name = "restaurant_menu_items")
 public class MenuItem extends BaseAuditableEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -23,17 +22,14 @@ public class MenuItem extends BaseAuditableEntity {
     @JoinColumn(name = "menu_category_id")
     private MenuCategory menuCategory;
 
-    @Column(length = 1000)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "image_url")
+    @Column(name = "image_url", nullable = false)
     private String imageUrl;
 
-    @Column(nullable = false, precision = 19, scale = 2, columnDefinition = "decimal(19,2) default 0")
-    private BigDecimal price = BigDecimal.ZERO;
-
-    @Column(name = "profit_margin_percent", nullable = false)
-    private Double legacyPricingCompatibility = 0.0;
+    @Column(name = "price", nullable = false, precision = 19, scale = 0)
+    private BigDecimal price;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
@@ -54,7 +50,7 @@ public class MenuItem extends BaseAuditableEntity {
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public BigDecimal getPrice() { return price; }
-    public void setPrice(BigDecimal price) { this.price = price == null ? BigDecimal.ZERO : price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean active) { isActive = active; }
 }

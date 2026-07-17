@@ -1,9 +1,10 @@
 package com.swp391.api.modules.qr.entity;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 
 @Entity
-@Table(name = "inventory_linked_menu_items")
+@Table(name = "restaurant_menu_items")
 public class QrMenuItem {
 
     @Id
@@ -23,15 +24,12 @@ public class QrMenuItem {
     @Column(name = "image_url")
     private String imageUrl;
 
-    @Column(name = "profit_margin_percent")
-    private Double profitMarginPercent;
-
     @Column(name = "is_active")
     private Boolean isActive;
 
-    // price column read-only — maps to DB column if present, never written by this module
+    // Read-only price for QR ordering.
     @Column(name = "price", insertable = false, updatable = false)
-    private Double price;
+    private BigDecimal price;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -48,11 +46,8 @@ public class QrMenuItem {
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
 
-    public Double getProfitMarginPercent() { return profitMarginPercent; }
-    public void setProfitMarginPercent(Double profitMarginPercent) { this.profitMarginPercent = profitMarginPercent; }
-
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
 
-    public Double getPrice() { return price; }
+    public BigDecimal getPrice() { return price; }
 }

@@ -25,7 +25,7 @@ class MenuPricingFlowTests {
         request.setName("Direct Price Test Dish " + System.nanoTime());
         request.setCategory("Main Course");
         request.setDescription("A dish priced without recipe costing.");
-        request.setImageUrl(null);
+        request.setImageUrl("https://res.cloudinary.com/demo/image/upload/sample.jpg");
         request.setPrice(BigDecimal.valueOf(99000));
 
         MenuItemResponse response = menuService.create(request);

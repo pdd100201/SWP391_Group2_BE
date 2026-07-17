@@ -1,5 +1,6 @@
 package com.swp391.api.modules.qr.dto;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 public class QrMenuResponse {
@@ -41,20 +42,18 @@ public class QrMenuResponse {
     public static class ItemDto {
         private Long itemId;
         private String itemName;
-        private Double price;
+        private BigDecimal price;
         private String imageUrl;
         private String description;
-        private int canServe;
 
         public ItemDto() {}
 
-        public ItemDto(Long itemId, String itemName, Double price, String imageUrl, String description, int canServe) {
+        public ItemDto(Long itemId, String itemName, BigDecimal price, String imageUrl, String description) {
             this.itemId = itemId;
             this.itemName = itemName;
             this.price = price;
             this.imageUrl = imageUrl;
             this.description = description;
-            this.canServe = canServe;
         }
 
         public Long getItemId() { return itemId; }
@@ -63,8 +62,8 @@ public class QrMenuResponse {
         public String getItemName() { return itemName; }
         public void setItemName(String itemName) { this.itemName = itemName; }
 
-        public Double getPrice() { return price; }
-        public void setPrice(Double price) { this.price = price; }
+        public BigDecimal getPrice() { return price; }
+        public void setPrice(BigDecimal price) { this.price = price; }
 
         public String getImageUrl() { return imageUrl; }
         public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
@@ -72,7 +71,5 @@ public class QrMenuResponse {
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
 
-        public int getCanServe() { return canServe; }
-        public void setCanServe(int canServe) { this.canServe = canServe; }
     }
 }

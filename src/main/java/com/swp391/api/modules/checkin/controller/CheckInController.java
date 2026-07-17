@@ -1,6 +1,7 @@
 package com.swp391.api.modules.checkin.controller;
 
 import com.swp391.api.modules.checkin.dto.CheckInRequest;
+import com.swp391.api.modules.checkin.dto.ActiveGuestResponse;
 import com.swp391.api.modules.checkin.service.CheckInService;
 import com.swp391.api.modules.reservation.dto.ReservationResponse;
 import jakarta.validation.Valid;
@@ -46,14 +47,16 @@ public class CheckInController {
      * GET /api/check-in/table/{tableId}/active-guest
      */
     @GetMapping("/table/{tableId}/active-guest")
-    public ResponseEntity<com.swp391.api.modules.checkin.dto.ActiveGuestResponse> getActiveGuestByTable(
+    public ResponseEntity<ActiveGuestResponse> getActiveGuestByTable(
             @PathVariable Long tableId) {
-        return ResponseEntity.ok(checkInService.getActiveGuestByTable(tableId));
+        ActiveGuestResponse guest = checkInService.getActiveGuestByTable(tableId);
+        return guest == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(guest);
     }
 
     @GetMapping("/table/{tableId}/reserved-guest")
-    public ResponseEntity<com.swp391.api.modules.checkin.dto.ActiveGuestResponse> getReservedGuestByTable(
+    public ResponseEntity<ActiveGuestResponse> getReservedGuestByTable(
             @PathVariable Long tableId) {
-        return ResponseEntity.ok(checkInService.getReservedGuestByTable(tableId));
+        ActiveGuestResponse guest = checkInService.getReservedGuestByTable(tableId);
+        return guest == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(guest);
     }
 }

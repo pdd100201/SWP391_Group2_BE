@@ -35,7 +35,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -50,7 +53,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @Transactional
 public class OrderService {
-    // Sai số nhỏ cho các phép tính tồn kho kiểu double.
     private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER");
 
     private final OrderRepository orderRepository;
@@ -85,12 +87,11 @@ public class OrderService {
     }
 
     public OrderResponse create(CreateOrderRequest request) {
-        // Nhân viên mở order từ reservation đã arrived/confirmed và đã được gán bàn.
         User waiter = currentUserRequired();
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getReservationId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
-        if (reservation.getStatus() != ReservationStatus.ARRIVED && reservation.getStatus() != ReservationStatus.CONFIRMED) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only confirmed or checked-in reservations can open an order");
+        if (reservation.getStatus() != ReservationStatus.ARRIVED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation must be checked in before opening an order");
         }
         Long assignedTableId = resolvePrimaryTableId(reservation);
         if (assignedTableId == null) {
@@ -102,7 +103,6 @@ public class OrderService {
         if (orderRepository.findByReservationReservationId(reservation.getReservationId()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation already has an order");
         }
-        // Lock the table so two staff actions cannot change its status at the same time.
         RestaurantTable table = tableRepository.findByIdForUpdate(assignedTableId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned table not found"));
         if (!Boolean.TRUE.equals(table.getIsActive())) {
@@ -125,11 +125,22 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrders(boolean activeOnly) {
-        // Màn nhân viên thường gọi activeOnly=true để loại các đơn đã đóng.
-        List<RestaurantOrder> orders = activeOnly
-                ? orderRepository.findByStatusOrderByCreatedAtDesc(OrderStatus.OPEN)
-                : orderRepository.findAllByOrderByCreatedAtDesc();
-        return orders.stream().map(this::toResponse).toList();
+        List<OrderResponse> orders = orderRepository.findAllByOrderByCreatedAtDesc().stream()
+                .map(this::toResponse)
+                .toList();
+        if (!activeOnly) return orders;
+
+        // Active Orders chỉ chứa order vẫn đang được phục vụ hoặc chưa thanh toán.
+        // Order bị hủy luôn bị loại; Order đã phục vụ và đã thanh toán sẽ được quản lý ở lịch sử tổng.
+        return orders.stream().filter(this::isActiveOrder).toList();
+    }
+
+    private boolean isActiveOrder(OrderResponse order) {
+        if (order.status() != OrderStatus.OPEN) return false;
+        boolean serviceInProgress = !"SERVED".equals(order.serviceStatus());
+        boolean paymentOutstanding = order.total().compareTo(BigDecimal.ZERO) > 0
+                && !"PAID".equals(order.paymentStatus());
+        return serviceInProgress || paymentOutstanding;
     }
 
     @Transactional(readOnly = true)
@@ -151,7 +162,6 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<MenuItemResponse> getPublicMenu(String token) {
-        // Menu công khai chỉ hợp lệ khi token trỏ tới một order đang mở.
         RestaurantOrder order = orderRepository.findByPublicAccessToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid"));
         requireOpen(order);
@@ -170,19 +180,39 @@ public class OrderService {
     }
 
     private OrderResponse addItem(RestaurantOrder order, AddOrderItemRequest request) {
-        // Món bắt đầu ở DRAFT để nhân viên/khách còn sửa trước khi tồn kho bị trừ.
         requireOpen(order);
         MenuItem menuItem = findActiveMenuItem(request.getMenuItemId());
+        BigDecimal unitPrice = getMenuPrice(menuItem);
+        String note = normalize(request.getNote());
+
+        // A repeated click for the same draft dish updates its quantity instead of creating another row.
+        OrderItem existingDraft = order.getItems().stream()
+                .filter(item -> item.getStatus() == OrderItemStatus.DRAFT)
+                .filter(item -> item.getMenuItem().getId().equals(menuItem.getId()))
+                .filter(item -> Objects.equals(normalize(item.getNote()), note))
+                .filter(item -> samePrice(item.getUnitPrice(), unitPrice))
+                .findFirst()
+                .orElse(null);
+        if (existingDraft != null) {
+            int combinedQuantity = existingDraft.getQuantity() + request.getQuantity();
+            if (combinedQuantity > 99) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Combined quantity must not exceed 99");
+            }
+            existingDraft.setQuantity(combinedQuantity);
+            updateSubtotal(existingDraft);
+            return toResponse(orderRepository.save(order));
+        }
 
         OrderItem item = new OrderItem();
         item.setMenuItem(menuItem);
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(menuItemPrice(menuItem));
+        item.setUnitPrice(unitPrice);
         item.setQuantity(request.getQuantity());
         updateSubtotal(item);
-        item.setNote(normalize(request.getNote()));
+        item.setNote(note);
         item.setStatus(OrderItemStatus.DRAFT);
         order.addItem(item);
         return toResponse(orderRepository.save(order));
@@ -200,7 +230,6 @@ public class OrderService {
 
     private OrderResponse updateItem(
             RestaurantOrder order, Long itemId, UpdateOrderItemRequest request, boolean publicAccess) {
-        // Người dùng công khai chỉ sửa được món DRAFT; nhân viên có thể chỉnh số lượng CONFIRMED.
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
         if (item.getStatus() == OrderItemStatus.DRAFT) {
@@ -212,7 +241,8 @@ public class OrderService {
         if (publicAccess || item.getStatus() != OrderItemStatus.CONFIRMED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only draft or confirmed items can be edited");
         }
-        adjustConfirmedQuantity(item, request.getQuantity());
+        item.setQuantity(request.getQuantity());
+        updateSubtotal(item);
         item.setNote(normalize(request.getNote()));
         return toResponse(orderRepository.save(order));
     }
@@ -226,13 +256,11 @@ public class OrderService {
     }
 
     private OrderResponse removeItem(RestaurantOrder order, Long itemId, boolean publicAccess) {
-        // Xóa món đã confirmed bởi nhân viên sẽ hủy món và hoàn tồn kho đã trừ.
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
         if (item.getStatus() == OrderItemStatus.DRAFT) {
             order.getItems().remove(item);
         } else if (!publicAccess && item.getStatus() == OrderItemStatus.CONFIRMED) {
-            restoreInventory(item);
             item.setStatus(OrderItemStatus.CANCELLED);
         } else {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This item can no longer be removed");
@@ -248,41 +276,7 @@ public class OrderService {
         return submit(findOrderByTokenForUpdate(token));
     }
 
-    public OrderResponse addAndSubmitPublicItemsForTable(Long tableId, List<AddOrderItemRequest> requests) {
-        // Luồng QR bàn: thêm món vào order OPEN hiện tại của bàn và submit ngay.
-        if (requests == null || requests.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Order must contain at least one item");
-        }
-
-        RestaurantOrder order = findOpenOrderByTableForUpdate(tableId);
-        requireOpen(order);
-
-        List<OrderItem> createdItems = new ArrayList<>();
-        for (AddOrderItemRequest request : requests) {
-            MenuItem menuItem = findActiveMenuItem(request.getMenuItemId());
-
-            OrderItem item = new OrderItem();
-            item.setMenuItem(menuItem);
-            item.setMenuItemName(menuItem.getName());
-            item.setMenuItemImageUrl(menuItem.getImageUrl());
-            item.setCategoryName(menuItem.getCategory());
-            item.setUnitPrice(menuItemPrice(menuItem));
-            item.setQuantity(request.getQuantity());
-            updateSubtotal(item);
-            item.setNote(normalize(request.getNote()));
-            item.setStatus(OrderItemStatus.DRAFT);
-            order.addItem(item);
-            createdItems.add(item);
-        }
-
-        for (OrderItem item : createdItems) {
-            submitItem(item);
-        }
-        return toResponse(orderRepository.save(order));
-    }
-
     private OrderResponse submit(RestaurantOrder order) {
-        // Chỉ submit món DRAFT; món confirmed/preparing/served giữ nguyên.
         requireOpen(order);
         List<OrderItem> drafts = order.getItems().stream()
                 .filter(item -> item.getStatus() == OrderItemStatus.DRAFT)
@@ -295,7 +289,6 @@ public class OrderService {
     }
 
     public OrderResponse updateItemStatus(Long orderId, Long itemId, OrderItemStatus target) {
-        // Đổi trạng thái bếp/phục vụ được kiểm soát theo vai trò và bước chuyển hợp lệ.
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
@@ -319,8 +312,14 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    public OrderResponse createSepayPayment(Long orderId) {
+        RestaurantOrder order = findOrderForUpdate(orderId);
+        requireOpen(order);
+        paymentService.createSepayPayment(order.getId());
+        return toResponse(order);
+    }
+
     public OrderResponse close(Long orderId) {
-        // Chỉ được đóng order khi mọi món không bị hủy đều đã phục vụ.
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         boolean hasServedItem = order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.SERVED);
@@ -339,13 +338,6 @@ public class OrderService {
         order.getReservation().setStatus(ReservationStatus.COMPLETED);
         updateAssignedTableStatus(order.getReservation(), RestaurantTable.TableStatus.CLEANING);
         return toResponse(orderRepository.save(order));
-    }
-
-    public OrderResponse createSepayPayment(Long orderId) {
-        RestaurantOrder order = findOrderForUpdate(orderId);
-        requireOpen(order);
-        paymentService.createSepayPayment(order.getId());
-        return toResponse(order);
     }
 
     public OrderResponse applyPromotion(Long orderId, String code) {
@@ -385,7 +377,6 @@ public class OrderService {
     }
 
     public OrderResponse cancel(Long orderId) {
-        // Không cho hủy order khi đã bắt đầu chế biến.
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         boolean started = order.getItems().stream().anyMatch(item ->
@@ -396,7 +387,6 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order cannot be cancelled after preparation has started");
         }
         order.getItems().forEach(item -> {
-            if (item.getStatus() == OrderItemStatus.CONFIRMED) restoreInventory(item);
             item.setStatus(OrderItemStatus.CANCELLED);
         });
         if (order.getPromotion() != null) {
@@ -416,28 +406,21 @@ public class OrderService {
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(menuItemPrice(menuItem));
+        item.setUnitPrice(getMenuPrice(menuItem));
         updateSubtotal(item);
         item.setStatus(OrderItemStatus.CONFIRMED);
         item.setSubmittedAt(LocalDateTime.now());
     }
 
-    private void adjustConfirmedQuantity(OrderItem item, int newQuantity) {
-        if (newQuantity == item.getQuantity()) return;
-        item.setQuantity(newQuantity);
-        updateSubtotal(item);
-    }
-
-    private void restoreInventory(OrderItem item) {
-    }
-
-    private BigDecimal menuItemPrice(MenuItem item) {
-        return item.getPrice() == null ? BigDecimal.ZERO : item.getPrice().setScale(2, RoundingMode.HALF_UP);
+    private BigDecimal getMenuPrice(MenuItem item) {
+        if (item.getPrice() == null || item.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish price is not available");
+        }
+        return item.getPrice().setScale(2, RoundingMode.HALF_UP);
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {
-        // Dùng một dạng dữ liệu trả về thống nhất cho giao diện nhân viên và giao diện công khai.
-        List<OrderItemResponse> items = order.getItems().stream().map(this::toItemResponse).toList();
+        List<OrderItemResponse> items = consolidateOrderItemResponses(order.getItems());
         BigDecimal subtotal = items.stream()
                 .filter(item -> item.status() != OrderItemStatus.CANCELLED)
                 .map(OrderItemResponse::lineTotal)
@@ -522,8 +505,8 @@ public class OrderService {
         if (promotion.getStatus() != PromotionStatus.ACTIVE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is inactive");
         }
-        LocalDate today = LocalDate.now();
-        if (today.isBefore(promotion.getStartDate()) || today.isAfter(promotion.getEndDate())) {
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isBefore(promotion.getStartDate()) || now.isAfter(promotion.getEndDate())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is outside its valid period");
         }
         if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
@@ -573,13 +556,20 @@ public class OrderService {
     }
 
     private void updateAssignedTableStatus(Reservation reservation, RestaurantTable.TableStatus status) {
-        Long tableId = resolvePrimaryTableId(reservation);
-        if (tableId == null) return;
-        tableRepository.findByIdForUpdate(tableId).ifPresent(table -> {
+        List<Long> tableIds = findAssignedTables(reservation).stream()
+                .map(RestaurantTable::getId)
+                .distinct()
+                .toList();
+        if (tableIds.isEmpty()) return;
+
+        List<RestaurantTable> updatedTables = new java.util.ArrayList<>();
+        tableIds.forEach(tableId -> tableRepository.findByIdForUpdate(tableId).ifPresent(table -> {
             if (Boolean.TRUE.equals(table.getIsActive())) {
                 table.setStatus(status);
+                updatedTables.add(table);
             }
-        });
+        }));
+        tableRepository.saveAll(updatedTables);
     }
 
     private Long resolvePrimaryTableId(Reservation reservation) {
@@ -604,7 +594,6 @@ public class OrderService {
     }
 
     private String serviceStatus(RestaurantOrder order) {
-        // Trạng thái suy ra dùng để tóm tắt tình trạng món cho UI danh sách order.
         if (order.getStatus() != OrderStatus.OPEN) return order.getStatus().name();
         if (order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.DRAFT)) return "HAS_DRAFT";
         if (order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.PREPARING)) return "PREPARING";
@@ -629,15 +618,6 @@ public class OrderService {
     private RestaurantOrder findOrderByTokenForUpdate(String token) {
         return orderRepository.findByTokenForUpdate(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid"));
-    }
-
-    private RestaurantOrder findOpenOrderByTableForUpdate(Long tableId) {
-        return orderRepository.findOpenOrdersByTableIdForUpdate(tableId).stream()
-                .findFirst()
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "This table does not have an open order"
-                ));
     }
 
     private OrderItem findItem(RestaurantOrder order, Long itemId) {
@@ -678,6 +658,80 @@ public class OrderService {
     }
 
     private void updateSubtotal(OrderItem item) {
-        item.setSubtotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2, RoundingMode.HALF_UP));
+        item.setSubtotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2));
+    }
+
+    /**
+     * Builds a consolidated response without changing the managed JPA collection. This method must stay
+     * side-effect free: removing an item from RestaurantOrder.items would trigger orphanRemoval and delete
+     * the corresponding audit row from the database when a read transaction is flushed.
+     */
+    private List<OrderItemResponse> consolidateOrderItemResponses(List<OrderItem> sourceItems) {
+        Map<OrderItemMergeKey, OrderItemResponse> consolidated = new LinkedHashMap<>();
+
+        for (OrderItem item : sourceItems) {
+            OrderItemMergeKey key = new OrderItemMergeKey(
+                    item.getMenuItem().getId(),
+                    item.getStatus(),
+                    normalize(item.getNote()),
+                    normalizedPrice(item.getUnitPrice()));
+            OrderItemResponse current = toItemResponse(item);
+            OrderItemResponse existing = consolidated.get(key);
+            if (existing == null) {
+                consolidated.put(key, withNote(current, key.note()));
+                continue;
+            }
+
+            consolidated.put(key, new OrderItemResponse(
+                    existing.id(),
+                    existing.menuItemId(),
+                    existing.menuItemName(),
+                    existing.menuItemImageUrl(),
+                    existing.category(),
+                    existing.unitPrice(),
+                    existing.quantity() + current.quantity(),
+                    existing.lineTotal().add(current.lineTotal()),
+                    key.note(),
+                    existing.status(),
+                    earlier(existing.submittedAt(), current.submittedAt()),
+                    earlier(existing.createdAt(), current.createdAt()),
+                    later(existing.updatedAt(), current.updatedAt())));
+        }
+
+        return new ArrayList<>(consolidated.values());
+    }
+
+    private OrderItemResponse withNote(OrderItemResponse item, String note) {
+        return new OrderItemResponse(
+                item.id(), item.menuItemId(), item.menuItemName(), item.menuItemImageUrl(), item.category(),
+                item.unitPrice(), item.quantity(), item.lineTotal(), note, item.status(), item.submittedAt(),
+                item.createdAt(), item.updatedAt());
+    }
+
+    private LocalDateTime earlier(LocalDateTime first, LocalDateTime second) {
+        if (first == null) return second;
+        if (second == null) return first;
+        return first.isBefore(second) ? first : second;
+    }
+
+    private LocalDateTime later(LocalDateTime first, LocalDateTime second) {
+        if (first == null) return second;
+        if (second == null) return first;
+        return first.isAfter(second) ? first : second;
+    }
+
+    private boolean samePrice(BigDecimal first, BigDecimal second) {
+        return first != null && second != null && first.compareTo(second) == 0;
+    }
+
+    private BigDecimal normalizedPrice(BigDecimal price) {
+        return price == null ? null : price.stripTrailingZeros();
+    }
+
+    private record OrderItemMergeKey(
+            Long menuItemId,
+            OrderItemStatus status,
+            String note,
+            BigDecimal unitPrice) {
     }
 }

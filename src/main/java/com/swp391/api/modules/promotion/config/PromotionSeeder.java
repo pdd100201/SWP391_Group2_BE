@@ -4,7 +4,7 @@ import com.swp391.api.modules.promotion.entity.Promotion;
 import com.swp391.api.modules.promotion.entity.PromotionType;
 import com.swp391.api.modules.promotion.repository.PromotionRepository;
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -49,13 +49,13 @@ public class PromotionSeeder implements CommandLineRunner {
         promotion.setName(name);
         promotion.setType(type);
         promotion.setValue(value.setScale(2));
-        promotion.setStartDate(LocalDate.now().minusDays(30));
-        promotion.setEndDate(LocalDate.now().plusMonths(6));
+        promotion.setStartDate(LocalDateTime.now().minusDays(30));
+        promotion.setEndDate(LocalDateTime.now().plusMonths(6));
         promotion.setIsActive(true);
         promotion.setMinOrderAmount(minOrderAmount.setScale(2));
         promotion.setMaxDiscountAmount(maxDiscountAmount == null ? null : maxDiscountAmount.setScale(2));
         promotion.setUsedCount(0);
-        promotion.setDescription("Sample promotion for invoice payment testing");
+        promotion.setDescription("Sample promotion for order payment testing");
         return promotion;
     }
 }

@@ -2,7 +2,6 @@ package com.swp391.api.modules.order.entity;
 
 import com.swp391.api.modules.menu.entity.MenuItem;
 import com.swp391.api.modules.user.entity.BaseAuditableEntity;
-import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -13,13 +12,9 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 @Entity
 @Table(name = "restaurant_order_items")
@@ -66,15 +61,6 @@ public class OrderItem extends BaseAuditableEntity {
     @Column(name = "submitted_at")
     private LocalDateTime submittedAt;
 
-    @OneToMany(mappedBy = "orderItem", cascade = CascadeType.ALL, orphanRemoval = true)
-    @OrderBy("id asc")
-    private List<OrderItemIngredient> ingredients = new ArrayList<>();
-
-    public void addIngredient(OrderItemIngredient ingredient) {
-        ingredient.setOrderItem(this);
-        ingredients.add(ingredient);
-    }
-
     public Long getId() { return id; }
     public RestaurantOrder getOrder() { return order; }
     public void setOrder(RestaurantOrder order) { this.order = order; }
@@ -98,5 +84,4 @@ public class OrderItem extends BaseAuditableEntity {
     public void setStatus(OrderItemStatus status) { this.status = status; }
     public LocalDateTime getSubmittedAt() { return submittedAt; }
     public void setSubmittedAt(LocalDateTime submittedAt) { this.submittedAt = submittedAt; }
-    public List<OrderItemIngredient> getIngredients() { return ingredients; }
 }
