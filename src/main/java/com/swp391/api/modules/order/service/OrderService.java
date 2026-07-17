@@ -33,7 +33,11 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -115,7 +119,6 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
-    @Transactional(readOnly = true)
     public List<OrderResponse> getOrders(boolean activeOnly) {
         List<OrderResponse> orders = orderRepository.findAllByOrderByCreatedAtDesc().stream()
                 .map(this::toResponse)
@@ -135,18 +138,15 @@ public class OrderService {
         return serviceInProgress || paymentOutstanding;
     }
 
-    @Transactional(readOnly = true)
     public OrderResponse getById(Long orderId) {
         return toResponse(findOrder(orderId));
     }
 
-    @Transactional(readOnly = true)
     public OrderResponse getByReservation(Long reservationId) {
         return toResponse(orderRepository.findByReservationReservationId(reservationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found")));
     }
 
-    @Transactional(readOnly = true)
     public OrderResponse getByToken(String token) {
         return toResponse(orderRepository.findByPublicAccessToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid")));
@@ -174,16 +174,37 @@ public class OrderService {
     private OrderResponse addItem(RestaurantOrder order, AddOrderItemRequest request) {
         requireOpen(order);
         MenuItem menuItem = findActiveMenuItem(request.getMenuItemId());
+        BigDecimal unitPrice = getMenuPrice(menuItem);
+        String note = normalize(request.getNote());
+
+        // A repeated click for the same draft dish updates its quantity instead of creating another row.
+        OrderItem existingDraft = order.getItems().stream()
+                .filter(item -> item.getStatus() == OrderItemStatus.DRAFT)
+                .filter(item -> item.getMenuItem().getId().equals(menuItem.getId()))
+                .filter(item -> Objects.equals(normalize(item.getNote()), note))
+                .filter(item -> samePrice(item.getUnitPrice(), unitPrice))
+                .findFirst()
+                .orElse(null);
+        if (existingDraft != null) {
+            int combinedQuantity = existingDraft.getQuantity() + request.getQuantity();
+            if (combinedQuantity > 99) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Combined quantity must not exceed 99");
+            }
+            existingDraft.setQuantity(combinedQuantity);
+            updateSubtotal(existingDraft);
+            return toResponse(orderRepository.save(order));
+        }
 
         OrderItem item = new OrderItem();
         item.setMenuItem(menuItem);
         item.setMenuItemName(menuItem.getName());
         item.setMenuItemImageUrl(menuItem.getImageUrl());
         item.setCategoryName(menuItem.getCategory());
-        item.setUnitPrice(getMenuPrice(menuItem));
+        item.setUnitPrice(unitPrice);
         item.setQuantity(request.getQuantity());
         updateSubtotal(item);
-        item.setNote(normalize(request.getNote()));
+        item.setNote(note);
         item.setStatus(OrderItemStatus.DRAFT);
         order.addItem(item);
         return toResponse(orderRepository.save(order));
@@ -384,7 +405,8 @@ public class OrderService {
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {
-        List<OrderItemResponse> items = order.getItems().stream().map(this::toItemResponse).toList();
+        List<OrderItemResponse> items = consolidateOrderItems(order.getItems()).stream()
+                .map(this::toItemResponse).toList();
         BigDecimal subtotal = items.stream()
                 .filter(item -> item.status() != OrderItemStatus.CANCELLED)
                 .map(OrderItemResponse::lineTotal)
@@ -623,5 +645,58 @@ public class OrderService {
 
     private void updateSubtotal(OrderItem item) {
         item.setSubtotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2));
+    }
+
+    /**
+     * Consolidates duplicate rows already present in old orders and duplicates that become identical
+     * after submission or a status transition. Notes and snapshot prices are part of the key so that
+     * special requests and historical totals are never lost.
+     */
+    private List<OrderItem> consolidateOrderItems(List<OrderItem> source) {
+        Map<OrderItemMergeKey, OrderItem> consolidated = new LinkedHashMap<>();
+
+        for (OrderItem item : source) {
+            OrderItemMergeKey key = new OrderItemMergeKey(
+                    item.getMenuItem().getId(),
+                    item.getStatus(),
+                    normalize(item.getNote()),
+                    normalizedPrice(item.getUnitPrice()));
+            OrderItem existing = consolidated.get(key);
+            if (existing == null) {
+                // Clone to avoid mutating the managed entity
+                OrderItem copy = new OrderItem();
+                copy.setMenuItem(item.getMenuItem());
+                copy.setMenuItemName(item.getMenuItemName());
+                copy.setMenuItemImageUrl(item.getMenuItemImageUrl());
+                copy.setCategoryName(item.getCategoryName());
+                copy.setUnitPrice(item.getUnitPrice());
+                copy.setQuantity(item.getQuantity());
+                copy.setSubtotal(item.getSubtotal());
+                copy.setNote(key.note());
+                copy.setStatus(item.getStatus());
+                copy.setSubmittedAt(item.getSubmittedAt());
+                consolidated.put(key, copy);
+            } else {
+                existing.setQuantity(existing.getQuantity() + item.getQuantity());
+                updateSubtotal(existing);
+            }
+        }
+
+        return new ArrayList<>(consolidated.values());
+    }
+
+    private boolean samePrice(BigDecimal first, BigDecimal second) {
+        return first != null && second != null && first.compareTo(second) == 0;
+    }
+
+    private BigDecimal normalizedPrice(BigDecimal price) {
+        return price == null ? null : price.stripTrailingZeros();
+    }
+
+    private record OrderItemMergeKey(
+            Long menuItemId,
+            OrderItemStatus status,
+            String note,
+            BigDecimal unitPrice) {
     }
 }

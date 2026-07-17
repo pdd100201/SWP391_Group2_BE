@@ -62,6 +62,7 @@ public class QrServiceImpl implements QrService {
         session.setTableId(tableId);
         session.setSessionToken(UUID.randomUUID().toString());
         session.setStartedAt(LocalDateTime.now());
+        session.setExpiredAt(LocalDateTime.now().plusHours(24));
         session.setStatus("ACTIVE");
         sessionRepository.save(session);
         return new QrSessionResponse(
@@ -376,7 +377,7 @@ public class QrServiceImpl implements QrService {
         } else {
             QrMenuItem qrItem = menuItemRepository.findById(menuItemId)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Menu item not found"));
-            double unitPrice = qrItem.getPrice() == null ? 0.0 : qrItem.getPrice();
+            double unitPrice = qrItem.getPrice() == null ? 0.0 : qrItem.getPrice().doubleValue();
 
             QrOrderItem item = new QrOrderItem();
             item.setOrderId(orderId);

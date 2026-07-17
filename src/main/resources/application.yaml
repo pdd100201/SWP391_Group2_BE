@@ -6,7 +6,7 @@ spring:
   datasource:
     url: jdbc:mysql://127.0.0.1:3306/restaurant_management_system?createDatabaseIfNotExist=true
     username: root
-    password: 123456
+    password: Thangvip123*
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -38,7 +38,7 @@ payment:
     vietqr-template: "compact2"
 
 cloudinary:
-  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
-  api-key: ${CLOUDINARY_API_KEY:}
-  api-secret: ${CLOUDINARY_API_SECRET:}
-  root-folder: ${CLOUDINARY_ROOT_FOLDER:golden-spoon}
+    cloud-name: drl2w1tj8
+    api-key: 585318495874699
+    api-secret: XOh027MJ-2xvX5J_ukJcGOSh73w
+    root-folder: golden-spoon
