@@ -10,6 +10,7 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "menu_categories")
+// Menu category used to group dishes in management, QR menu, and ordering screens.
 public class MenuCategory extends BaseAuditableEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

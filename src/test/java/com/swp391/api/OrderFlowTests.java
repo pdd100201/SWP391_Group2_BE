@@ -2,6 +2,7 @@ package com.swp391.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
@@ -10,6 +11,7 @@ import com.swp391.api.modules.order.dto.AddOrderItemRequest;
 import com.swp391.api.modules.order.dto.CreateOrderRequest;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.entity.OrderItemStatus;
+import com.swp391.api.modules.order.repository.OrderItemRepository;
 import com.swp391.api.modules.order.service.OrderService;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
@@ -34,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 class OrderFlowTests {
     @Autowired private OrderService orderService;
+    @Autowired private OrderItemRepository orderItemRepository;
     @Autowired private MenuService menuService;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private TableRepository tableRepository;
@@ -92,11 +95,35 @@ class OrderFlowTests {
         add.setMenuItemId(dish.getId());
         add.setQuantity(2);
         order = orderService.addItem(order.id(), add);
+
+        AddOrderItemRequest addSameDraft = new AddOrderItemRequest();
+        addSameDraft.setMenuItemId(dish.getId());
+        addSameDraft.setQuantity(1);
+        order = orderService.addItem(order.id(), addSameDraft);
+
+        assertEquals(1, order.items().size());
+        assertEquals(3, order.items().get(0).quantity());
+
+        order = orderService.submit(order.id());
+        order = orderService.addItem(order.id(), addSameDraft);
+
+        // Different statuses stay separate until the new draft is submitted.
+        assertEquals(2, order.items().size());
         order = orderService.submit(order.id());
         Long orderId = order.id();
 
+        assertEquals(1, order.items().size());
+        assertEquals(4, order.items().get(0).quantity());
         assertEquals(OrderItemStatus.CONFIRMED, order.items().get(0).status());
         assertTrue(order.items().get(0).unitPrice().compareTo(dish.getPrice()) == 0);
+
+        // Consolidation is a response concern only: reading must preserve both submitted audit rows.
+        assertEquals(2, orderItemRepository.countByOrder_Id(orderId));
+        OrderResponse reloaded = orderService.getById(orderId);
+        assertEquals(1, reloaded.items().size());
+        assertEquals(4, reloaded.items().get(0).quantity());
+        assertEquals(2, orderItemRepository.countByOrder_Id(orderId));
+
         assertTrue(orderService.getOrders(true).stream().anyMatch(active -> active.id().equals(orderId)));
         orderService.removeItem(order.id(), order.items().get(0).id());
 
@@ -106,5 +133,63 @@ class OrderFlowTests {
         assertEquals(
                 ReservationStatus.CANCELLED,
                 reservationRepository.findById(reservation.getReservationId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void createsSepayPaymentFromOrderAfterItemsAreServed() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        "manager@goldenspoon.vn",
+                        null,
+                        java.util.List.of(new SimpleGrantedAuthority("ROLE_MANAGER"))));
+
+        MenuItemResponse dish = menuService.getAll().stream()
+                .filter(item -> item.getName().equals("Fresh Garden Salad"))
+                .findFirst()
+                .orElseThrow();
+
+        Customer customer = new Customer();
+        customer.setCustomersEmail("sepay-order-test-" + System.nanoTime() + "@example.com");
+        customer.setFullName("SePay Order Test");
+        customer.setPassword("test-password");
+        customer.setPhone("0900000001");
+        customer = customerRepository.save(customer);
+
+        RestaurantTable table = tableRepository.findAvailableActiveTablesOrderByCapacityAsc().stream()
+                .filter(candidate -> candidate.getCapacity() >= 2)
+                .findFirst()
+                .orElseThrow();
+
+        Reservation reservation = new Reservation();
+        reservation.setCustomerId(customer.getCustomerId());
+        reservation.setFullName("SePay Order Test");
+        reservation.setPhone("0900000001");
+        reservation.setEmail("sepay-order-test@example.com");
+        reservation.setReservationDate(LocalDate.now());
+        reservation.setReservationTime(LocalTime.now());
+        reservation.setNumberOfGuests(2);
+        reservation.setStatus(ReservationStatus.ARRIVED);
+        reservation.setTableId(table.getId());
+        reservation = reservationRepository.save(reservation);
+
+        CreateOrderRequest create = new CreateOrderRequest();
+        create.setReservationId(reservation.getReservationId());
+        OrderResponse order = orderService.create(create);
+
+        AddOrderItemRequest add = new AddOrderItemRequest();
+        add.setMenuItemId(dish.getId());
+        add.setQuantity(1);
+        order = orderService.addItem(order.id(), add);
+        order = orderService.submit(order.id());
+
+        Long itemId = order.items().get(0).id();
+        order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.PREPARING);
+        order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.READY);
+        order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.SERVED);
+        order = orderService.createSepayPayment(order.id());
+
+        assertEquals("SEPAY", order.paymentProvider());
+        assertEquals("PENDING", order.paymentStatus());
+        assertNotNull(order.paymentCode());
     }
 }

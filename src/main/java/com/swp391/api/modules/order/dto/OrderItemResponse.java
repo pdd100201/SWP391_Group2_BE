@@ -4,6 +4,7 @@ import com.swp391.api.modules.order.entity.OrderItemStatus;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+// One line item projection inside OrderResponse.
 public record OrderItemResponse(
         Long id,
         Long menuItemId,

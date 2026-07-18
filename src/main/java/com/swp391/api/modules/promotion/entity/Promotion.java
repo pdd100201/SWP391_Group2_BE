@@ -15,33 +15,23 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "promotions")
 public class Promotion extends BaseAuditableEntity {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "promotion_id")
     private Long id;
 
-    @Column(name = "code", nullable = false, unique = true, length = 50)
+    @Column(nullable = false, unique = true, length = 40)
     private String code;
 
-    @Column(name = "promotion_name", nullable = false, length = 100)
-    private String promotionName;
-
-    @Column(name = "description", columnDefinition = "TEXT")
-    private String description;
+    @Column(nullable = false, length = 120)
+    private String name;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "discount_type", nullable = false, length = 20)
-    private DiscountType discountType;
+    @Column(nullable = false, length = 24)
+    private PromotionType type;
 
-    @Column(name = "discount_value", nullable = false, precision = 12, scale = 2)
-    private BigDecimal discountValue;
-
-    @Column(name = "min_order_amount", nullable = false, precision = 12, scale = 2)
-    private BigDecimal minOrderAmount = BigDecimal.ZERO;
-
-    @Column(name = "max_discount_amount", precision = 12, scale = 2)
-    private BigDecimal maxDiscountAmount;
+    @Column(nullable = false, precision = 19, scale = 2)
+    private BigDecimal value = BigDecimal.ZERO;
 
     @Column(name = "start_date", nullable = false)
     private LocalDateTime startDate;
@@ -49,117 +39,63 @@ public class Promotion extends BaseAuditableEntity {
     @Column(name = "end_date", nullable = false)
     private LocalDateTime endDate;
 
+    @Column(name = "is_active", nullable = false)
+    private Boolean isActive = true;
+
+    @Column(name = "min_order_amount", nullable = false, precision = 19, scale = 2)
+    private BigDecimal minOrderAmount = BigDecimal.ZERO;
+
+    @Column(name = "max_discount_amount", precision = 19, scale = 2)
+    private BigDecimal maxDiscountAmount;
+
     @Column(name = "usage_limit")
     private Integer usageLimit;
 
     @Column(name = "used_count", nullable = false)
     private Integer usedCount = 0;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
-    private PromotionStatus status = PromotionStatus.ACTIVE;
+    @Column(length = 500)
+    private String description;
 
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public String getCode() {
-        return code;
-    }
-
-    public void setCode(String code) {
-        this.code = code;
-    }
-
-    public String getPromotionName() {
-        return promotionName;
-    }
-
-    public void setPromotionName(String promotionName) {
-        this.promotionName = promotionName;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
+    public Long getId() { return id; }
+    public String getCode() { return code; }
+    public void setCode(String code) { this.code = code; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getPromotionName() { return name; }
+    public void setPromotionName(String promotionName) { this.name = promotionName; }
+    public PromotionType getType() { return type; }
+    public void setType(PromotionType type) { this.type = type; }
     public DiscountType getDiscountType() {
-        return discountType;
+        return type == PromotionType.PERCENTAGE ? DiscountType.PERCENT : DiscountType.FIXED;
     }
-
     public void setDiscountType(DiscountType discountType) {
-        this.discountType = discountType;
+        this.type = discountType == DiscountType.PERCENT ? PromotionType.PERCENTAGE : PromotionType.FIXED_AMOUNT;
     }
-
-    public BigDecimal getDiscountValue() {
-        return discountValue;
-    }
-
-    public void setDiscountValue(BigDecimal discountValue) {
-        this.discountValue = discountValue;
-    }
-
-    public BigDecimal getMinOrderAmount() {
-        return minOrderAmount;
-    }
-
-    public void setMinOrderAmount(BigDecimal minOrderAmount) {
-        this.minOrderAmount = minOrderAmount;
-    }
-
-    public BigDecimal getMaxDiscountAmount() {
-        return maxDiscountAmount;
-    }
-
-    public void setMaxDiscountAmount(BigDecimal maxDiscountAmount) {
-        this.maxDiscountAmount = maxDiscountAmount;
-    }
-
-    public LocalDateTime getStartDate() {
-        return startDate;
-    }
-
-    public void setStartDate(LocalDateTime startDate) {
-        this.startDate = startDate;
-    }
-
-    public LocalDateTime getEndDate() {
-        return endDate;
-    }
-
-    public void setEndDate(LocalDateTime endDate) {
-        this.endDate = endDate;
-    }
-
-    public Integer getUsageLimit() {
-        return usageLimit;
-    }
-
-    public void setUsageLimit(Integer usageLimit) {
-        this.usageLimit = usageLimit;
-    }
-
-    public Integer getUsedCount() {
-        return usedCount;
-    }
-
-    public void setUsedCount(Integer usedCount) {
-        this.usedCount = usedCount;
-    }
-
+    public BigDecimal getValue() { return value; }
+    public void setValue(BigDecimal value) { this.value = value; }
+    public BigDecimal getDiscountValue() { return value; }
+    public void setDiscountValue(BigDecimal discountValue) { this.value = discountValue; }
+    public LocalDateTime getStartDate() { return startDate; }
+    public void setStartDate(LocalDateTime startDate) { this.startDate = startDate; }
+    public LocalDateTime getEndDate() { return endDate; }
+    public void setEndDate(LocalDateTime endDate) { this.endDate = endDate; }
+    public Boolean getIsActive() { return isActive; }
+    public void setIsActive(Boolean active) { isActive = active; }
     public PromotionStatus getStatus() {
-        return status;
+        return Boolean.TRUE.equals(isActive) ? PromotionStatus.ACTIVE : PromotionStatus.INACTIVE;
     }
-
     public void setStatus(PromotionStatus status) {
-        this.status = status;
+        this.isActive = status == PromotionStatus.ACTIVE;
     }
+    public BigDecimal getMinOrderAmount() { return minOrderAmount; }
+    public void setMinOrderAmount(BigDecimal minOrderAmount) { this.minOrderAmount = minOrderAmount; }
+    public BigDecimal getMaxDiscountAmount() { return maxDiscountAmount; }
+    public void setMaxDiscountAmount(BigDecimal maxDiscountAmount) { this.maxDiscountAmount = maxDiscountAmount; }
+    public Integer getUsageLimit() { return usageLimit; }
+    public void setUsageLimit(Integer usageLimit) { this.usageLimit = usageLimit; }
+    public Integer getUsedCount() { return usedCount; }
+    public void setUsedCount(Integer usedCount) { this.usedCount = usedCount; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
 }

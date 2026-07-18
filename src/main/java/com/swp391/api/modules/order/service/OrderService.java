@@ -21,6 +21,7 @@ import com.swp391.api.modules.qr.entity.QrOrder;
 import com.swp391.api.modules.qr.entity.QrOrderItem;
 import com.swp391.api.modules.qr.repository.QrOrderItemRepository;
 import com.swp391.api.modules.qr.repository.QrOrderRepository;
+import com.swp391.api.modules.payment.service.PaymentService;
 import com.swp391.api.modules.promotion.entity.DiscountType;
 import com.swp391.api.modules.promotion.entity.Promotion;
 import com.swp391.api.modules.promotion.entity.PromotionStatus;
@@ -68,6 +69,7 @@ public class OrderService {
     private final PaymentRepository paymentRepository;
     private final QrOrderRepository qrOrderRepository;
     private final QrOrderItemRepository qrOrderItemRepository;
+    private final PaymentService paymentService;
 
     public OrderService(
             OrderRepository orderRepository,
@@ -79,7 +81,8 @@ public class OrderService {
             PromotionRepository promotionRepository,
             PaymentRepository paymentRepository,
             QrOrderRepository qrOrderRepository,
-            QrOrderItemRepository qrOrderItemRepository) {
+            QrOrderItemRepository qrOrderItemRepository,
+            PaymentService paymentService) {
         this.orderRepository = orderRepository;
         this.reservationRepository = reservationRepository;
         this.tableRepository = tableRepository;
@@ -90,6 +93,7 @@ public class OrderService {
         this.paymentRepository = paymentRepository;
         this.qrOrderRepository = qrOrderRepository;
         this.qrOrderItemRepository = qrOrderItemRepository;
+        this.paymentService = paymentService;
     }
 
     public OrderResponse create(CreateOrderRequest request) {
@@ -452,6 +456,13 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    public OrderResponse createSepayPayment(Long orderId) {
+        RestaurantOrder order = findOrderForUpdate(orderId);
+        requireOpen(order);
+        paymentService.createSepayPayment(order.getId());
+        return toResponse(order);
+    }
+
     public OrderResponse close(Long orderId) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -553,8 +564,7 @@ public class OrderService {
     }
 
     private OrderResponse toResponse(RestaurantOrder order) {
-        List<OrderItemResponse> items = consolidateOrderItems(order.getItems()).stream()
-                .map(this::toItemResponse).toList();
+        List<OrderItemResponse> items = consolidateOrderItemResponses(order.getItems());
         BigDecimal subtotal = items.stream()
                 .filter(item -> item.status() != OrderItemStatus.CANCELLED)
                 .map(OrderItemResponse::lineTotal)
@@ -595,7 +605,7 @@ public class OrderService {
                 discountAmount,
                 total,
                 payment == null ? null : payment.getId(),
-                payment == null ? null : payment.getProvider().name(),
+                payment == null ? null : payment.getProvider(),
                 payment == null ? null : payment.getStatus().name(),
                 payment == null ? null : payment.getPaymentCode(),
                 payment == null ? null : payment.getQrImageUrl(),
@@ -796,42 +806,64 @@ public class OrderService {
     }
 
     /**
-     * Consolidates duplicate rows already present in old orders and duplicates that become identical
-     * after submission or a status transition. Notes and snapshot prices are part of the key so that
-     * special requests and historical totals are never lost.
+     * Builds a consolidated response without changing the managed JPA collection. This method must stay
+     * side-effect free: removing an item from RestaurantOrder.items would trigger orphanRemoval and delete
+     * the corresponding audit row from the database when a read transaction is flushed.
      */
-    private List<OrderItem> consolidateOrderItems(List<OrderItem> source) {
-        Map<OrderItemMergeKey, OrderItem> consolidated = new LinkedHashMap<>();
+    private List<OrderItemResponse> consolidateOrderItemResponses(List<OrderItem> sourceItems) {
+        Map<OrderItemMergeKey, OrderItemResponse> consolidated = new LinkedHashMap<>();
 
-        for (OrderItem item : source) {
+        for (OrderItem item : sourceItems) {
             OrderItemMergeKey key = new OrderItemMergeKey(
                     item.getMenuItem().getId(),
                     item.getStatus(),
                     normalize(item.getNote()),
                     normalizedPrice(item.getUnitPrice()));
-            OrderItem existing = consolidated.get(key);
+            OrderItemResponse current = toItemResponse(item);
+            OrderItemResponse existing = consolidated.get(key);
             if (existing == null) {
-                // Clone to avoid mutating the managed entity
-                OrderItem copy = new OrderItem();
-                copy.setMenuItem(item.getMenuItem());
-                copy.setMenuItemName(item.getMenuItemName());
-                copy.setMenuItemImageUrl(item.getMenuItemImageUrl());
-                copy.setCategoryName(item.getCategoryName());
-                copy.setUnitPrice(item.getUnitPrice());
-                copy.setQuantity(item.getQuantity());
-                copy.setSubtotal(item.getSubtotal());
-                copy.setNote(key.note());
-                copy.setStatus(item.getStatus());
-                copy.setSubmittedAt(item.getSubmittedAt());
-                consolidated.put(key, copy);
-            } else {
-                existing.setQuantity(existing.getQuantity() + item.getQuantity());
-                updateSubtotal(existing);
+                consolidated.put(key, withNote(current, key.note()));
+                continue;
             }
+
+            consolidated.put(key, new OrderItemResponse(
+                    existing.id(),
+                    existing.menuItemId(),
+                    existing.menuItemName(),
+                    existing.menuItemImageUrl(),
+                    existing.category(),
+                    existing.unitPrice(),
+                    existing.quantity() + current.quantity(),
+                    existing.lineTotal().add(current.lineTotal()),
+                    key.note(),
+                    existing.status(),
+                    earlier(existing.submittedAt(), current.submittedAt()),
+                    earlier(existing.createdAt(), current.createdAt()),
+                    later(existing.updatedAt(), current.updatedAt())));
         }
 
         return new ArrayList<>(consolidated.values());
     }
+
+    private OrderItemResponse withNote(OrderItemResponse item, String note) {
+        return new OrderItemResponse(
+                item.id(), item.menuItemId(), item.menuItemName(), item.menuItemImageUrl(), item.category(),
+                item.unitPrice(), item.quantity(), item.lineTotal(), note, item.status(), item.submittedAt(),
+                item.createdAt(), item.updatedAt());
+    }
+
+    private LocalDateTime earlier(LocalDateTime first, LocalDateTime second) {
+        if (first == null) return second;
+        if (second == null) return first;
+        return first.isBefore(second) ? first : second;
+    }
+
+    private LocalDateTime later(LocalDateTime first, LocalDateTime second) {
+        if (first == null) return second;
+        if (second == null) return first;
+        return first.isAfter(second) ? first : second;
+    }
+
 
     private boolean samePrice(BigDecimal first, BigDecimal second) {
         return first != null && second != null && first.compareTo(second) == 0;

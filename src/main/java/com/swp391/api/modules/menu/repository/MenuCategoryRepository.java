@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+// Category lookups used by the menu form and category validation.
 public interface MenuCategoryRepository extends JpaRepository<MenuCategory, Long> {
     Optional<MenuCategory> findByNameIgnoreCase(String name);
     List<MenuCategory> findAllByOrderByNameAsc();
