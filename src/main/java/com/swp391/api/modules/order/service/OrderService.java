@@ -129,6 +129,36 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Called by QR flow when no open restaurant_order exists for the table yet.
+    public OrderResponse createForTable(Long tableId, Long waiterId) {
+        Reservation reservation = reservationRepository.findActiveReservationByTableId(tableId)
+                .or(() -> reservationRepository.findByTableIdAndStatus(tableId, ReservationStatus.ARRIVED))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "No checked-in reservation found for table " + tableId));
+        if (orderRepository.findByReservationReservationId(reservation.getReservationId()).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation already has an order");
+        }
+        User waiter = userRepository.findById(waiterId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Waiter not found"));
+        if (reservation.getTableId() == null) {
+            reservation.setTableId(tableId);
+        }
+        tableRepository.findByIdForUpdate(tableId).ifPresent(table -> {
+            if (Boolean.TRUE.equals(table.getIsActive())
+                    && table.getStatus() != RestaurantTable.TableStatus.OCCUPIED) {
+                table.setStatus(RestaurantTable.TableStatus.OCCUPIED);
+            }
+        });
+        RestaurantOrder order = new RestaurantOrder();
+        order.setOrderCode("ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        order.setReservation(reservation);
+        order.setWaiter(waiter);
+        order.setPublicAccessToken(UUID.randomUUID().toString().replace("-", ""));
+        order.setStatus(OrderStatus.OPEN);
+        return toResponse(orderRepository.save(order));
+    }
+
     public List<OrderResponse> getOrders(boolean activeOnly) {
         List<OrderResponse> orders = new ArrayList<>();
         orderRepository.findAllByOrderByCreatedAtDesc().stream().map(this::toResponse).forEach(orders::add);

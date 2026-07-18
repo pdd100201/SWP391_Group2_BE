@@ -117,69 +117,31 @@ public class QrServiceImpl implements QrService {
                 .orElseThrow(() -> new RuntimeException("Invalid or expired session token"));
 
         Long tableId = session.getTableId();
+        System.out.println("[QR] createOrder: sessionToken=" + request.getSessionToken().substring(0, 8) + "... tableId=" + tableId);
 
         // Prefer the staff-created restaurant_order if one is OPEN for this table
         Optional<QrAccessTokenResponse> tokenOpt = getAccessTokenForTable(tableId);
-        if (tokenOpt.isPresent()) {
-            String token = tokenOpt.get().getPublicAccessToken();
-            for (QrOrderRequest.OrderItemDto itemDto : request.getItems()) {
-                AddOrderItemRequest addReq = new AddOrderItemRequest();
-                addReq.setMenuItemId(itemDto.getItemId());
-                addReq.setQuantity(itemDto.getQuantity());
-                orderService.addPublicItem(token, addReq);
-            }
-            OrderResponse submitted = orderService.submitPublic(token);
-            return toQrResponse(submitted, tableId);
-        }
+        System.out.println("[QR] createOrder: getAccessTokenForTable result=" + (tokenOpt.isPresent() ? "token present" : "empty"));
 
-        // Fallback: no restaurant_order open → use qr_orders table
-        QrOrder order = orderRepository.findFirstByTableIdAndStatus(tableId, "OPEN")
-                .orElseGet(() -> {
-                    String qrPrefix = "ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + "-QR";
-                    long qrSeq = orderRepository.countByOrderCodeStartingWith(qrPrefix) + 1;
-                    QrOrder newOrder = new QrOrder();
-                    newOrder.setOrderCode(qrPrefix + String.format("%06d", qrSeq));
-                    newOrder.setTableId(tableId);
-                    newOrder.setOrderType("QR_ORDER");
-                    newOrder.setStatus("OPEN");
-                    newOrder.setCreatedAt(LocalDateTime.now());
-                    newOrder.setUpdatedAt(LocalDateTime.now());
-                    reservationRepository.findActiveReservationByTableId(tableId)
-                            .ifPresent(r -> newOrder.setReservationId(r.getReservationId()));
-                    return orderRepository.save(newOrder);
-                });
+        String token;
+        if (tokenOpt.isPresent()) {
+            token = tokenOpt.get().getPublicAccessToken();
+            System.out.println("[QR] createOrder: reusing existing restaurant_order token=" + token.substring(0, 8) + "...");
+        } else {
+            // No open restaurant_order → create one automatically (admin waiter)
+            OrderResponse created = orderService.createForTable(tableId, 1L);
+            token = created.publicAccessToken();
+            System.out.println("[QR] createOrder: auto-created restaurant_order=" + created.orderCode() + " token=" + token.substring(0, 8) + "...");
+        }
 
         for (QrOrderRequest.OrderItemDto itemDto : request.getItems()) {
-            QrMenuItem menuItem = menuItemRepository.findById(itemDto.getItemId())
-                    .orElseThrow(() -> new RuntimeException("Menu item not found: " + itemDto.getItemId()));
-
-            double unitPrice = menuItem.getPrice() == null ? 0.0 : menuItem.getPrice().doubleValue();
-            double subtotal = unitPrice * itemDto.getQuantity();
-
-            // Merge into existing CONFIRMED row with same item, don't create duplicate
-            Optional<QrOrderItem> existingItem = orderItemRepository.findByOrderId(order.getOrderId())
-                    .stream()
-                    .filter(i -> i.getItemId() != null && i.getItemId().equals(menuItem.getId()) && "CONFIRMED".equals(i.getItemStatus()))
-                    .findFirst();
-
-            if (existingItem.isPresent()) {
-                QrOrderItem existing = existingItem.get();
-                existing.setQuantity(existing.getQuantity() + itemDto.getQuantity());
-                existing.setSubtotal(existing.getUnitPrice() * existing.getQuantity());
-                orderItemRepository.save(existing);
-            } else {
-                QrOrderItem orderItem = new QrOrderItem();
-                orderItem.setOrderId(order.getOrderId());
-                orderItem.setItemId(menuItem.getId());
-                orderItem.setQuantity(itemDto.getQuantity());
-                orderItem.setUnitPrice(unitPrice);
-                orderItem.setSubtotal(subtotal);
-                orderItem.setItemStatus("CONFIRMED");
-                orderItemRepository.save(orderItem);
-            }
+            AddOrderItemRequest addReq = new AddOrderItemRequest();
+            addReq.setMenuItemId(itemDto.getItemId());
+            addReq.setQuantity(itemDto.getQuantity());
+            orderService.addPublicItem(token, addReq);
         }
-
-        return buildResponse(order, order.getOrderId());
+        OrderResponse submitted = orderService.submitPublic(token);
+        return toQrResponse(submitted, tableId);
     }
 
     @Override
@@ -469,12 +431,23 @@ public class QrServiceImpl implements QrService {
     @Override
     @Transactional(readOnly = true)
     public Optional<QrAccessTokenResponse> getAccessTokenForTable(Long tableId) {
-        return orderService.getOrders(true).stream()
+        System.out.println("[QR] getAccessTokenForTable: looking for tableId=" + tableId);
+        List<com.swp391.api.modules.order.dto.OrderResponse> allActive = orderService.getOrders(true);
+        System.out.println("[QR] getAccessTokenForTable: total active orders=" + allActive.size());
+        for (com.swp391.api.modules.order.dto.OrderResponse o : allActive) {
+            System.out.println("[QR]   order id=" + o.id()
+                    + " tableId=" + o.tableId()
+                    + " tableIds=" + o.tableIds()
+                    + " publicAccessToken=" + (o.publicAccessToken() != null ? o.publicAccessToken().substring(0, 8) + "..." : "null"));
+        }
+        Optional<QrAccessTokenResponse> result = allActive.stream()
                 .filter(o -> o.publicAccessToken() != null)
                 .filter(o -> tableId.equals(o.tableId())
                         || (o.tableIds() != null && o.tableIds().contains(tableId)))
                 .map(o -> new QrAccessTokenResponse(o.publicAccessToken()))
                 .findFirst();
+        System.out.println("[QR] getAccessTokenForTable: result=" + (result.isPresent() ? "token found" : "empty — will use qr_orders fallback"));
+        return result;
     }
 
     private QrOrderResponse toQrResponse(OrderResponse order, Long tableId) {
