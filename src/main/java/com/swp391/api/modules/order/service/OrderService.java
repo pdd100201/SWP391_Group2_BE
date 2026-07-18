@@ -289,9 +289,9 @@ public class OrderService {
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
 
-        if (target == OrderItemStatus.PREPARING || target == OrderItemStatus.READY) {
-            requireAnyRole(Set.of("ROLE_ADMIN", "ROLE_MANAGER"));
-        } else if (target == OrderItemStatus.SERVED) {
+        if (target == OrderItemStatus.PREPARING
+                || target == OrderItemStatus.READY
+                || target == OrderItemStatus.SERVED) {
             requireAnyRole(STAFF_ROLES);
         } else {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported status update");
@@ -304,7 +304,12 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Invalid item transition from " + item.getStatus() + " to " + target);
         }
-        item.setStatus(target);
+        // The API response consolidates equivalent rows into one displayed item. Progress every matching
+        // database row together so a waiter action cannot split that displayed quantity into separate statuses.
+        order.getItems().stream()
+                .filter(candidate -> isEquivalentOrderItem(candidate, item))
+                .toList()
+                .forEach(candidate -> candidate.setStatus(target));
         return toResponse(orderRepository.save(order));
     }
 
@@ -711,6 +716,13 @@ public class OrderService {
 
     private boolean samePrice(BigDecimal first, BigDecimal second) {
         return first != null && second != null && first.compareTo(second) == 0;
+    }
+
+    private boolean isEquivalentOrderItem(OrderItem candidate, OrderItem reference) {
+        return candidate.getMenuItem().getId().equals(reference.getMenuItem().getId())
+                && candidate.getStatus() == reference.getStatus()
+                && Objects.equals(normalize(candidate.getNote()), normalize(reference.getNote()))
+                && samePrice(candidate.getUnitPrice(), reference.getUnitPrice());
     }
 
     private BigDecimal normalizedPrice(BigDecimal price) {
