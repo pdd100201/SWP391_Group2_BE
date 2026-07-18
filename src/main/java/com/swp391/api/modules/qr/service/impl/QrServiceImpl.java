@@ -1,5 +1,8 @@
 package com.swp391.api.modules.qr.service.impl;
 
+import com.swp391.api.modules.order.dto.AddOrderItemRequest;
+import com.swp391.api.modules.order.dto.OrderItemResponse;
+import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.entity.OrderStatus;
 import com.swp391.api.modules.order.entity.RestaurantOrder;
 import com.swp391.api.modules.order.repository.OrderRepository;
@@ -113,19 +116,35 @@ public class QrServiceImpl implements QrService {
                 .findBySessionTokenAndStatus(request.getSessionToken(), "ACTIVE")
                 .orElseThrow(() -> new RuntimeException("Invalid or expired session token"));
 
-        // Reuse existing OPEN order for this table instead of creating a new one
-        QrOrder order = orderRepository.findFirstByTableIdAndStatus(session.getTableId(), "OPEN")
+        Long tableId = session.getTableId();
+
+        // Prefer the staff-created restaurant_order if one is OPEN for this table
+        Optional<QrAccessTokenResponse> tokenOpt = getAccessTokenForTable(tableId);
+        if (tokenOpt.isPresent()) {
+            String token = tokenOpt.get().getPublicAccessToken();
+            for (QrOrderRequest.OrderItemDto itemDto : request.getItems()) {
+                AddOrderItemRequest addReq = new AddOrderItemRequest();
+                addReq.setMenuItemId(itemDto.getItemId());
+                addReq.setQuantity(itemDto.getQuantity());
+                orderService.addPublicItem(token, addReq);
+            }
+            OrderResponse submitted = orderService.submitPublic(token);
+            return toQrResponse(submitted, tableId);
+        }
+
+        // Fallback: no restaurant_order open → use qr_orders table
+        QrOrder order = orderRepository.findFirstByTableIdAndStatus(tableId, "OPEN")
                 .orElseGet(() -> {
                     String qrPrefix = "ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + "-QR";
                     long qrSeq = orderRepository.countByOrderCodeStartingWith(qrPrefix) + 1;
                     QrOrder newOrder = new QrOrder();
                     newOrder.setOrderCode(qrPrefix + String.format("%06d", qrSeq));
-                    newOrder.setTableId(session.getTableId());
+                    newOrder.setTableId(tableId);
                     newOrder.setOrderType("QR_ORDER");
                     newOrder.setStatus("OPEN");
                     newOrder.setCreatedAt(LocalDateTime.now());
                     newOrder.setUpdatedAt(LocalDateTime.now());
-                    reservationRepository.findActiveReservationByTableId(session.getTableId())
+                    reservationRepository.findActiveReservationByTableId(tableId)
                             .ifPresent(r -> newOrder.setReservationId(r.getReservationId()));
                     return orderRepository.save(newOrder);
                 });
@@ -451,9 +470,42 @@ public class QrServiceImpl implements QrService {
     @Transactional(readOnly = true)
     public Optional<QrAccessTokenResponse> getAccessTokenForTable(Long tableId) {
         return orderService.getOrders(true).stream()
-                .filter(o -> tableId.equals(o.tableId()))
+                .filter(o -> o.publicAccessToken() != null)
+                .filter(o -> tableId.equals(o.tableId())
+                        || (o.tableIds() != null && o.tableIds().contains(tableId)))
                 .map(o -> new QrAccessTokenResponse(o.publicAccessToken()))
                 .findFirst();
+    }
+
+    private QrOrderResponse toQrResponse(OrderResponse order, Long tableId) {
+        List<QrOrderResponse.OrderItemDto> itemDtos = (order.items() == null
+                ? List.<OrderItemResponse>of() : order.items())
+                .stream()
+                .map(item -> {
+                    QrOrderResponse.OrderItemDto dto = new QrOrderResponse.OrderItemDto();
+                    dto.setOrderItemId(item.id());
+                    dto.setItemId(item.menuItemId());
+                    dto.setItemName(item.menuItemName());
+                    dto.setItemImageUrl(item.menuItemImageUrl());
+                    dto.setQuantity(item.quantity());
+                    dto.setUnitPrice(item.unitPrice() == null ? 0.0 : item.unitPrice().doubleValue());
+                    dto.setSubtotal(item.lineTotal() == null ? 0.0 : item.lineTotal().doubleValue());
+                    dto.setItemStatus(item.status() == null ? "CONFIRMED" : item.status().name());
+                    dto.setNote(item.note());
+                    return dto;
+                })
+                .collect(Collectors.toList());
+        double totalAmount = itemDtos.stream()
+                .mapToDouble(QrOrderResponse.OrderItemDto::getSubtotal).sum();
+        QrOrderResponse response = new QrOrderResponse();
+        response.setOrderId(order.id());
+        response.setOrderCode(order.orderCode());
+        response.setTableId(tableId);
+        response.setStatus(order.status() == null ? "OPEN" : order.status().name());
+        response.setItems(itemDtos);
+        response.setTotalAmount(totalAmount);
+        response.setCreatedAt(order.createdAt());
+        return response;
     }
 
     // ── Private helpers ──────────────────────────────────────────────────
