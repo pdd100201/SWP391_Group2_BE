@@ -28,9 +28,8 @@ public class Payment extends BaseAuditableEntity {
     @JoinColumn(name = "order_id", nullable = false)
     private RestaurantOrder order;
 
-    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private PaymentProvider provider;
+    private String provider;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -60,8 +59,8 @@ public class Payment extends BaseAuditableEntity {
     public Long getId() { return id; }
     public RestaurantOrder getOrder() { return order; }
     public void setOrder(RestaurantOrder order) { this.order = order; }
-    public PaymentProvider getProvider() { return provider; }
-    public void setProvider(PaymentProvider provider) { this.provider = provider; }
+    public String getProvider() { return provider; }
+    public void setProvider(String provider) { this.provider = provider; }
     public PaymentStatus getStatus() { return status; }
     public void setStatus(PaymentStatus status) { this.status = status; }
     public BigDecimal getAmount() { return amount; }

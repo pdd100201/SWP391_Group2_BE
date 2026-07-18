@@ -16,6 +16,5 @@ public record PaymentResponse(
         String providerTransactionId,
         LocalDateTime paidAt,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
-) {
+        LocalDateTime updatedAt) {
 }

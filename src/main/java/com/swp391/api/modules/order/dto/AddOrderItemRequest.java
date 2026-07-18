@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+// Payload for adding one dish to an order, from staff UI or public guest UI.
 public class AddOrderItemRequest {
     @NotNull(message = "Menu item is required")
     private Long menuItemId;

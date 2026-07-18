@@ -33,3 +33,6 @@ build/
 .vscode/
 .env
 application-local.yaml
+backend-run*.log
+hs_err_pid*.log
+replay_pid*.log

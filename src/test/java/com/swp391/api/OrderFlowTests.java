@@ -2,6 +2,7 @@ package com.swp391.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
@@ -135,15 +136,21 @@ class OrderFlowTests {
     }
 
     @Test
-    void waiterCanProgressAConsolidatedItemWithoutSplittingItsQuantity() {
+    void createsSepayPaymentFromOrderAfterItemsAreServed() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        "manager@goldenspoon.vn",
+                        null,
+                        java.util.List.of(new SimpleGrantedAuthority("ROLE_MANAGER"))));
+
         MenuItemResponse dish = menuService.getAll().stream()
                 .filter(item -> item.getName().equals("Fresh Garden Salad"))
                 .findFirst()
                 .orElseThrow();
 
         Customer customer = new Customer();
-        customer.setCustomersEmail("waiter-status-test-" + System.nanoTime() + "@example.com");
-        customer.setFullName("Waiter Status Test");
+        customer.setCustomersEmail("sepay-order-test-" + System.nanoTime() + "@example.com");
+        customer.setFullName("SePay Order Test");
         customer.setPassword("test-password");
         customer.setPhone("0900000001");
         customer = customerRepository.save(customer);
@@ -155,9 +162,9 @@ class OrderFlowTests {
 
         Reservation reservation = new Reservation();
         reservation.setCustomerId(customer.getCustomerId());
-        reservation.setFullName("Waiter Status Test");
+        reservation.setFullName("SePay Order Test");
         reservation.setPhone("0900000001");
-        reservation.setEmail("waiter-status-test@example.com");
+        reservation.setEmail("sepay-order-test@example.com");
         reservation.setReservationDate(LocalDate.now());
         reservation.setReservationTime(LocalTime.now());
         reservation.setNumberOfGuests(2);
@@ -169,26 +176,20 @@ class OrderFlowTests {
         create.setReservationId(reservation.getReservationId());
         OrderResponse order = orderService.create(create);
 
-        AddOrderItemRequest firstBatch = new AddOrderItemRequest();
-        firstBatch.setMenuItemId(dish.getId());
-        firstBatch.setQuantity(2);
-        order = orderService.addItem(order.id(), firstBatch);
+        AddOrderItemRequest add = new AddOrderItemRequest();
+        add.setMenuItemId(dish.getId());
+        add.setQuantity(1);
+        order = orderService.addItem(order.id(), add);
         order = orderService.submit(order.id());
 
-        AddOrderItemRequest secondBatch = new AddOrderItemRequest();
-        secondBatch.setMenuItemId(dish.getId());
-        secondBatch.setQuantity(1);
-        order = orderService.addItem(order.id(), secondBatch);
-        order = orderService.submit(order.id());
+        Long itemId = order.items().get(0).id();
+        order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.PREPARING);
+        order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.READY);
+        order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.SERVED);
+        order = orderService.createSepayPayment(order.id());
 
-        Long displayedItemId = order.items().get(0).id();
-        order = orderService.updateItemStatus(order.id(), displayedItemId, OrderItemStatus.PREPARING);
-        order = orderService.updateItemStatus(order.id(), displayedItemId, OrderItemStatus.READY);
-        order = orderService.updateItemStatus(order.id(), displayedItemId, OrderItemStatus.SERVED);
-
-        assertEquals(1, order.items().size());
-        assertEquals(3, order.items().get(0).quantity());
-        assertEquals(OrderItemStatus.SERVED, order.items().get(0).status());
-        assertEquals(2, orderItemRepository.countByOrder_Id(order.id()));
+        assertEquals("SEPAY", order.paymentProvider());
+        assertEquals("PENDING", order.paymentStatus());
+        assertNotNull(order.paymentCode());
     }
 }

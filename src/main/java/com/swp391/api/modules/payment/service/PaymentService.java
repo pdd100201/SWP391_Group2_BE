@@ -5,6 +5,10 @@ import com.swp391.api.modules.payment.dto.SepayWebhookRequest;
 import com.swp391.api.modules.payment.entity.Payment;
 import java.util.Map;
 
+/**
+ * SePay payment operations for an order. The order remains the source of truth
+ * for the complete payment lifecycle.
+ */
 public interface PaymentService {
     PaymentResponse createSepayPayment(Long orderId);
 

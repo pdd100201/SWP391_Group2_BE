@@ -3,6 +3,7 @@ package com.swp391.api.modules.menu.dto;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+// Dữ liệu menu đầy đủ trả về giao diện, gồm giá vốn công thức, giá gợi ý và tồn kho khả dụng.
 public class MenuItemResponse {
     private Long id;
     private String name;

@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @Order(3)
+// Bootstraps default categories and backfills category links for existing menu items.
 public class MenuCategorySeeder implements CommandLineRunner {
     private static final List<String> DEFAULT_CATEGORIES = List.of(
             "Appetizer", "Main Course", "Side Dish", "Dessert", "Beverage");

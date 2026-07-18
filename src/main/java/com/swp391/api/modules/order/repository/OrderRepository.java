@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+// Order persistence queries, including pessimistic locks for inventory-sensitive updates.
 public interface OrderRepository extends JpaRepository<RestaurantOrder, Long> {
     Optional<RestaurantOrder> findByReservationReservationId(Long reservationId);
     Optional<RestaurantOrder> findByPublicAccessToken(String publicAccessToken);
@@ -21,4 +22,14 @@ public interface OrderRepository extends JpaRepository<RestaurantOrder, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from RestaurantOrder o where o.publicAccessToken = :token")
     Optional<RestaurantOrder> findByTokenForUpdate(@Param("token") String token);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select o
+            from RestaurantOrder o
+            where o.status = com.swp391.api.modules.order.entity.OrderStatus.OPEN
+              and o.reservation.tableId = :tableId
+            order by o.createdAt desc
+            """)
+    List<RestaurantOrder> findOpenOrdersByTableIdForUpdate(@Param("tableId") Long tableId);
 }
