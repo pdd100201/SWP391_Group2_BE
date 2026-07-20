@@ -1,5 +1,6 @@
 package com.swp391.api.modules.report.service;
 
+import com.swp391.api.modules.report.dto.DashboardStatsResponse;
 import com.swp391.api.modules.report.dto.GroupByMode;
 import com.swp391.api.modules.report.dto.RevenueStatsResponse;
 import java.time.LocalDate;
@@ -18,4 +19,11 @@ public interface ReportService {
      * @return Báo cáo thống kê chi tiết
      */
     RevenueStatsResponse getRevenueStatistics(LocalDate startDate, LocalDate endDate, GroupByMode mode);
+
+    /**
+     * Lấy dữ liệu thống kê hoạt động tổng quan cho trang chủ Dashboard.
+     *
+     * @return Thống kê tổng hợp số lượng bàn, thực đơn, nhân viên, doanh thu
+     */
+    DashboardStatsResponse getDashboardOverview();
 }

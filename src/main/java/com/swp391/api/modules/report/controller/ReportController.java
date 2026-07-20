@@ -1,5 +1,6 @@
 package com.swp391.api.modules.report.controller;
 
+import com.swp391.api.modules.report.dto.DashboardStatsResponse;
 import com.swp391.api.modules.report.dto.GroupByMode;
 import com.swp391.api.modules.report.dto.RevenueStatsResponse;
 import com.swp391.api.modules.report.service.ReportService;
@@ -25,6 +26,21 @@ public class ReportController {
 
     public ReportController(ReportService reportService) {
         this.reportService = reportService;
+    }
+
+    /**
+     * Lấy dữ liệu thống kê hoạt động tổng hợp cho Dashboard trang chủ.
+     * Chỉ cho phép ADMIN và MANAGER truy cập thông tin kinh doanh.
+     */
+    @GetMapping("/overview")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<?> getDashboardOverview() {
+        try {
+            DashboardStatsResponse overview = reportService.getDashboardOverview();
+            return ResponseEntity.ok(overview);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("message", "Internal server error during dashboard overview processing: " + e.getMessage()));
+        }
     }
 
     /**

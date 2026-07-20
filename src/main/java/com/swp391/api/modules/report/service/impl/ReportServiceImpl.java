@@ -1,5 +1,6 @@
 package com.swp391.api.modules.report.service.impl;
 
+import com.swp391.api.modules.report.dto.DashboardStatsResponse;
 import com.swp391.api.modules.report.dto.GroupByMode;
 import com.swp391.api.modules.report.dto.RevenueStatsResponse;
 import com.swp391.api.modules.report.dto.RevenueTimeStatsDto;
@@ -7,6 +8,10 @@ import com.swp391.api.modules.report.service.ReportService;
 import com.swp391.api.modules.payment.entity.Payment;
 import com.swp391.api.modules.payment.entity.PaymentStatus;
 import com.swp391.api.modules.payment.repository.PaymentRepository;
+import com.swp391.api.modules.table.repository.TableRepository;
+import com.swp391.api.modules.reservation.repository.ReservationRepository;
+import com.swp391.api.modules.menu.repository.MenuItemRepository;
+import com.swp391.api.modules.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -28,9 +33,22 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReportServiceImpl implements ReportService {
 
     private final PaymentRepository paymentRepository;
+    private final TableRepository tableRepository;
+    private final ReservationRepository reservationRepository;
+    private final MenuItemRepository menuItemRepository;
+    private final UserRepository userRepository;
 
-    public ReportServiceImpl(PaymentRepository paymentRepository) {
+    public ReportServiceImpl(
+            PaymentRepository paymentRepository,
+            TableRepository tableRepository,
+            ReservationRepository reservationRepository,
+            MenuItemRepository menuItemRepository,
+            UserRepository userRepository) {
         this.paymentRepository = paymentRepository;
+        this.tableRepository = tableRepository;
+        this.reservationRepository = reservationRepository;
+        this.menuItemRepository = menuItemRepository;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -64,6 +82,38 @@ public class ReportServiceImpl implements ReportService {
 
         // 7. Tạo phản hồi dữ liệu tối giản
         return new RevenueStatsResponse(totalRevenuePeriod, transactionCountPeriod, chartData);
+    }
+
+    /**
+     * Lấy dữ liệu thống kê hoạt động tổng hợp cho trang chủ Dashboard.
+     * Đầu vào: Không có.
+     * Kết quả: DashboardStatsResponse chứa tổng số lượng bàn, thực đơn, nhân viên, doanh thu 30 ngày qua.
+     */
+    @Override
+    public DashboardStatsResponse getDashboardOverview() {
+        // Lấy thống kê doanh thu 30 ngày qua làm mốc tổng quan
+        LocalDateTime start = LocalDate.now().minusDays(30).atStartOfDay();
+        LocalDateTime endExclusive = LocalDate.now().plusDays(1).atStartOfDay();
+        List<Payment> payments = paymentRepository.findByStatusAndPaidAtGreaterThanEqualAndPaidAtLessThan(
+            PaymentStatus.PAID, start, endExclusive
+        );
+
+        BigDecimal totalRevenue = calculateTotalRevenue(payments);
+        long successfulTransactions = payments.size();
+
+        long totalTables = tableRepository.count();
+        long totalReservations = reservationRepository.count();
+        long totalMenuItems = menuItemRepository.count();
+        long totalStaff = userRepository.count();
+
+        return new DashboardStatsResponse(
+            totalRevenue,
+            successfulTransactions,
+            totalTables,
+            totalReservations,
+            totalMenuItems,
+            totalStaff
+        );
     }
 
     /**
