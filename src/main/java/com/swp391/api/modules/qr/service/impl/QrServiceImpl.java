@@ -9,6 +9,8 @@ import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.order.service.OrderService;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import com.swp391.api.modules.reservation.repository.ReservationRepository;
+import com.swp391.api.modules.table.entity.RestaurantTable;
+import com.swp391.api.modules.table.repository.TableRepository;
 import com.swp391.api.modules.qr.dto.*;
 import com.swp391.api.modules.qr.dto.QrAccessTokenResponse;
 import com.swp391.api.modules.qr.dto.QrOrderSummaryResponse;
@@ -36,7 +38,7 @@ public class QrServiceImpl implements QrService {
     private final QrOrderItemRepository orderItemRepository;
     private final OrderService orderService;
     private final ReservationRepository reservationRepository;
-    private final QrDiningTableRepository diningTableRepository;
+    private final TableRepository tableRepository;
     private final OrderRepository restaurantOrderRepository;
 
     public QrServiceImpl(
@@ -46,7 +48,7 @@ public class QrServiceImpl implements QrService {
             QrOrderItemRepository orderItemRepository,
             OrderService orderService,
             ReservationRepository reservationRepository,
-            QrDiningTableRepository diningTableRepository,
+            TableRepository tableRepository,
             OrderRepository restaurantOrderRepository) {
         this.sessionRepository = sessionRepository;
         this.menuItemRepository = menuItemRepository;
@@ -54,7 +56,7 @@ public class QrServiceImpl implements QrService {
         this.orderItemRepository = orderItemRepository;
         this.orderService = orderService;
         this.reservationRepository = reservationRepository;
-        this.diningTableRepository = diningTableRepository;
+        this.tableRepository = tableRepository;
         this.restaurantOrderRepository = restaurantOrderRepository;
     }
 
@@ -138,6 +140,7 @@ public class QrServiceImpl implements QrService {
             AddOrderItemRequest addReq = new AddOrderItemRequest();
             addReq.setMenuItemId(itemDto.getItemId());
             addReq.setQuantity(itemDto.getQuantity());
+            addReq.setNote(itemDto.getNote());
             orderService.addPublicItem(token, addReq);
         }
         OrderResponse submitted = orderService.submitPublic(token);
@@ -171,10 +174,10 @@ public class QrServiceImpl implements QrService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
-        Map<Long, String> tableNameById = diningTableRepository.findAllById(tableIds)
+        Map<Long, String> tableNameById = tableRepository.findAllById(tableIds)
                 .stream()
                 .collect(Collectors.toMap(
-                        QrDiningTable::getId,
+                        RestaurantTable::getId,
                         t -> t.getTableName() != null ? t.getTableName() : "Bàn " + t.getId()));
 
         List<Long> reservationIds = orders.stream()
