@@ -17,6 +17,7 @@ import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.payment.entity.Payment;
 import com.swp391.api.modules.payment.entity.PaymentStatus;
 import com.swp391.api.modules.payment.repository.PaymentRepository;
+import com.swp391.api.modules.payment.service.PaymentService;
 import com.swp391.api.modules.promotion.entity.DiscountType;
 import com.swp391.api.modules.promotion.entity.Promotion;
 import com.swp391.api.modules.promotion.entity.PromotionStatus;
@@ -62,6 +63,7 @@ public class OrderService {
     private final MenuService menuService;
     private final PromotionRepository promotionRepository;
     private final PaymentRepository paymentRepository;
+    private final PaymentService paymentService;
 
     public OrderService(
             OrderRepository orderRepository,
@@ -71,7 +73,8 @@ public class OrderService {
             UserRepository userRepository,
             MenuService menuService,
             PromotionRepository promotionRepository,
-            PaymentRepository paymentRepository) {
+            PaymentRepository paymentRepository,
+            PaymentService paymentService) {
         this.orderRepository = orderRepository;
         this.reservationRepository = reservationRepository;
         this.tableRepository = tableRepository;
@@ -80,6 +83,7 @@ public class OrderService {
         this.menuService = menuService;
         this.promotionRepository = promotionRepository;
         this.paymentRepository = paymentRepository;
+        this.paymentService = paymentService;
     }
 
     public OrderResponse create(CreateOrderRequest request) {
@@ -289,9 +293,9 @@ public class OrderService {
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
 
-        if (target == OrderItemStatus.PREPARING || target == OrderItemStatus.READY) {
-            requireAnyRole(Set.of("ROLE_ADMIN", "ROLE_MANAGER"));
-        } else if (target == OrderItemStatus.SERVED) {
+        if (target == OrderItemStatus.PREPARING
+                || target == OrderItemStatus.READY
+                || target == OrderItemStatus.SERVED) {
             requireAnyRole(STAFF_ROLES);
         } else {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported status update");
@@ -304,8 +308,20 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Invalid item transition from " + item.getStatus() + " to " + target);
         }
-        item.setStatus(target);
+        // The API response consolidates equivalent rows into one displayed item. Progress every matching
+        // database row together so a waiter action cannot split that displayed quantity into separate statuses.
+        order.getItems().stream()
+                .filter(candidate -> isEquivalentOrderItem(candidate, item))
+                .toList()
+                .forEach(candidate -> candidate.setStatus(target));
         return toResponse(orderRepository.save(order));
+    }
+
+    public OrderResponse createSepayPayment(Long orderId) {
+        RestaurantOrder order = findOrderForUpdate(orderId);
+        requireOpen(order);
+        paymentService.createSepayPayment(order.getId());
+        return toResponse(order);
     }
 
     public OrderResponse close(Long orderId) {
@@ -450,7 +466,7 @@ public class OrderService {
                 discountAmount,
                 total,
                 payment == null ? null : payment.getId(),
-                payment == null ? null : payment.getProvider().name(),
+                payment == null ? null : payment.getProvider(),
                 payment == null ? null : payment.getStatus().name(),
                 payment == null ? null : payment.getPaymentCode(),
                 payment == null ? null : payment.getQrImageUrl(),
@@ -711,6 +727,13 @@ public class OrderService {
 
     private boolean samePrice(BigDecimal first, BigDecimal second) {
         return first != null && second != null && first.compareTo(second) == 0;
+    }
+
+    private boolean isEquivalentOrderItem(OrderItem candidate, OrderItem reference) {
+        return candidate.getMenuItem().getId().equals(reference.getMenuItem().getId())
+                && candidate.getStatus() == reference.getStatus()
+                && Objects.equals(normalize(candidate.getNote()), normalize(reference.getNote()))
+                && samePrice(candidate.getUnitPrice(), reference.getUnitPrice());
     }
 
     private BigDecimal normalizedPrice(BigDecimal price) {

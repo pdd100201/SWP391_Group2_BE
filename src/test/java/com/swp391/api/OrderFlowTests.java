@@ -2,6 +2,7 @@ package com.swp391.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.swp391.api.modules.menu.dto.MenuItemResponse;
@@ -132,5 +133,63 @@ class OrderFlowTests {
         assertEquals(
                 ReservationStatus.CANCELLED,
                 reservationRepository.findById(reservation.getReservationId()).orElseThrow().getStatus());
+    }
+
+    @Test
+    void createsSepayPaymentFromOrderAfterItemsAreServed() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        "manager@goldenspoon.vn",
+                        null,
+                        java.util.List.of(new SimpleGrantedAuthority("ROLE_MANAGER"))));
+
+        MenuItemResponse dish = menuService.getAll().stream()
+                .filter(item -> item.getName().equals("Fresh Garden Salad"))
+                .findFirst()
+                .orElseThrow();
+
+        Customer customer = new Customer();
+        customer.setCustomersEmail("sepay-order-test-" + System.nanoTime() + "@example.com");
+        customer.setFullName("SePay Order Test");
+        customer.setPassword("test-password");
+        customer.setPhone("0900000001");
+        customer = customerRepository.save(customer);
+
+        RestaurantTable table = tableRepository.findAvailableActiveTablesOrderByCapacityAsc().stream()
+                .filter(candidate -> candidate.getCapacity() >= 2)
+                .findFirst()
+                .orElseThrow();
+
+        Reservation reservation = new Reservation();
+        reservation.setCustomerId(customer.getCustomerId());
+        reservation.setFullName("SePay Order Test");
+        reservation.setPhone("0900000001");
+        reservation.setEmail("sepay-order-test@example.com");
+        reservation.setReservationDate(LocalDate.now());
+        reservation.setReservationTime(LocalTime.now());
+        reservation.setNumberOfGuests(2);
+        reservation.setStatus(ReservationStatus.ARRIVED);
+        reservation.setTableId(table.getId());
+        reservation = reservationRepository.save(reservation);
+
+        CreateOrderRequest create = new CreateOrderRequest();
+        create.setReservationId(reservation.getReservationId());
+        OrderResponse order = orderService.create(create);
+
+        AddOrderItemRequest add = new AddOrderItemRequest();
+        add.setMenuItemId(dish.getId());
+        add.setQuantity(1);
+        order = orderService.addItem(order.id(), add);
+        order = orderService.submit(order.id());
+
+        Long itemId = order.items().get(0).id();
+        order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.PREPARING);
+        order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.READY);
+        order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.SERVED);
+        order = orderService.createSepayPayment(order.id());
+
+        assertEquals("SEPAY", order.paymentProvider());
+        assertEquals("PENDING", order.paymentStatus());
+        assertNotNull(order.paymentCode());
     }
 }

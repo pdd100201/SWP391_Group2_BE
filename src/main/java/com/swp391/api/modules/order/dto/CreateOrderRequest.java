@@ -3,6 +3,7 @@ package com.swp391.api.modules.order.dto;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+// Staff request to open an order from a reservation.
 public class CreateOrderRequest {
     @NotNull(message = "Reservation is required")
     private Long reservationId;

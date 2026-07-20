@@ -7,7 +7,6 @@ import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.dto.UpdateOrderItemRequest;
 import com.swp391.api.modules.order.dto.UpdateOrderItemStatusRequest;
 import com.swp391.api.modules.order.service.OrderService;
-import com.swp391.api.modules.payment.service.PaymentService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
@@ -28,11 +27,9 @@ import org.springframework.web.bind.annotation.RestController;
 @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
 public class OrderController {
     private final OrderService orderService;
-    private final PaymentService paymentService;
 
-    public OrderController(OrderService orderService, PaymentService paymentService) {
+    public OrderController(OrderService orderService) {
         this.orderService = orderService;
-        this.paymentService = paymentService;
     }
 
     @PostMapping
@@ -88,30 +85,14 @@ public class OrderController {
         return ResponseEntity.ok(orderService.updateItemStatus(orderId, itemId, request.getStatus()));
     }
 
+    @PostMapping("/{orderId}/payment")
+    public ResponseEntity<OrderResponse> createSepayPayment(@PathVariable Long orderId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.createSepayPayment(orderId));
+    }
+
     @PatchMapping("/{orderId}/close")
     public ResponseEntity<OrderResponse> close(@PathVariable Long orderId) {
         return ResponseEntity.ok(orderService.close(orderId));
-    }
-
-    @PatchMapping("/{orderId}/sepay-payment")
-    @PreAuthorize("permitAll()")
-    public ResponseEntity<OrderResponse> createSepayPayment(@PathVariable Long orderId) {
-        paymentService.createSepayPayment(orderId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.getById(orderId));
-    }
-
-    @PatchMapping("/{orderId}/payment")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
-    public ResponseEntity<OrderResponse> createOrderPayment(@PathVariable Long orderId) {
-        paymentService.createSepayPayment(orderId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.getById(orderId));
-    }
-
-    @PatchMapping("/{orderId}/payment/cash")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'WAITER', 'RECEPTIONIST')")
-    public ResponseEntity<OrderResponse> createCashPayment(@PathVariable Long orderId) {
-        paymentService.createCashPayment(orderId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.getById(orderId));
     }
 
     @PatchMapping("/{orderId}/promotion")

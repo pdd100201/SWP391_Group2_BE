@@ -28,16 +28,6 @@ public class PaymentController {
         this.sepayProperties = sepayProperties;
     }
 
-    @PostMapping("/orders/{orderId}/sepay")
-    public ResponseEntity<PaymentResponse> createSepayPayment(@PathVariable Long orderId) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(paymentService.createSepayPayment(orderId));
-    }
-
-    @PostMapping("/orders/{orderId}/cash")
-    public ResponseEntity<PaymentResponse> createCashPayment(@PathVariable Long orderId) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(paymentService.createCashPayment(orderId));
-    }
-
     @GetMapping("/orders/{orderId}/latest")
     public ResponseEntity<PaymentResponse> getLatestPayment(@PathVariable Long orderId) {
         return ResponseEntity.ok(paymentService.getLatestPayment(orderId));
@@ -51,18 +41,12 @@ public class PaymentController {
         return ResponseEntity.ok(paymentService.handleSepayWebhook(request));
     }
 
-    @GetMapping("/sepay/webhook")
-    public ResponseEntity<Map<String, Boolean>> checkSepayWebhookEndpoint() {
-        return ResponseEntity.ok(Map.of("ready", true));
-    }
-
     private void validateSepayAuthorization(String authorization) {
         String apiKey = sepayProperties.getWebhookApiKey();
         if (!StringUtils.hasText(apiKey)) {
             return;
         }
-        String expected = "Apikey " + apiKey;
-        if (!expected.equals(authorization)) {
+        if (!("Apikey " + apiKey).equals(authorization)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid SePay webhook API key");
         }
     }

@@ -6,7 +6,7 @@ spring:
   datasource:
     url: jdbc:mysql://127.0.0.1:3306/restaurant_management_system?createDatabaseIfNotExist=true
     username: root
-    password: 123456
+    password: ${DB_PASSWORD:abc123}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
@@ -30,12 +30,12 @@ jwt:
 
 payment:
   sepay:
-    bank-code: "MB"
-    account-number: "0357502140"
-    account-name: "PHAN HUU DONG"
-    webhook-api-key: ""
-    transfer-prefix: "GS"
-    vietqr-template: "compact2"
+    bank-code: ${SEPAY_BANK_CODE:}
+    account-number: ${SEPAY_ACCOUNT_NUMBER:}
+    account-name: ${SEPAY_ACCOUNT_NAME:}
+    webhook-api-key: ${SEPAY_WEBHOOK_API_KEY:}
+    transfer-prefix: ${SEPAY_TRANSFER_PREFIX:GS}
+    vietqr-template: ${SEPAY_VIETQR_TEMPLATE:compact2}
 
 cloudinary:
   cloud-name: ${CLOUDINARY_CLOUD_NAME:}
