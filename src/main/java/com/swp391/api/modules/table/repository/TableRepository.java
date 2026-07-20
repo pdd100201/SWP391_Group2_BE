@@ -38,6 +38,14 @@ public interface TableRepository extends JpaRepository<RestaurantTable, Long> {
     Long sumActiveRestaurantSeats();
 
     @Query("""
+            SELECT COALESCE(SUM(t.capacity), 0)
+            FROM RestaurantTable t
+            WHERE t.isActive = true
+              AND t.status = com.swp391.api.modules.table.entity.RestaurantTable.TableStatus.AVAILABLE
+            """)
+    Long sumAvailableActiveRestaurantSeats();
+
+    @Query("""
             SELECT t
             FROM RestaurantTable t
             WHERE t.isActive = true

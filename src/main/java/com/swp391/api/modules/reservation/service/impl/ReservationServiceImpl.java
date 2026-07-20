@@ -65,13 +65,13 @@ public class ReservationServiceImpl implements ReservationService {
         // 1. Xác thực tài khoản người dùng hiện tại
         String currentEmail = getCurrentEmailRequired();
         Customer customer = customerRepository.findByCustomersEmail(currentEmail)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Chỉ có khách hàng mới tạo được đơn đặt bàn!"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Only customers can create reservations."));
 
         // 2. Kiểm tra quy định đặt trước 2 tiếng
         LocalDateTime reservationDateTime = LocalDateTime.of(request.getReservationDate(), request.getReservationTime());
         LocalDateTime earliestReservationDateTime = LocalDateTime.now().plusHours(MIN_ADVANCE_BOOKING_HOURS);
         if (reservationDateTime.isBefore(earliestReservationDateTime)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Bạn phải đặt bàn trước giờ hẹn ít nhất 2 tiếng!");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservations must be made at least 2 hours in advance.");
         }
 
         // 3. Kiểm tra xem nhà hàng còn đủ tổng sức chứa (ghế trống) trong khung giờ đó hay không
@@ -93,6 +93,37 @@ public class ReservationServiceImpl implements ReservationService {
         reservation.setCustomerId(customer.getCustomerId());
 
         return toResponse(reservationRepository.save(reservation));
+    }
+
+    @Override
+    public ReservationResponse createWalkInReservation(CreateReservationRequest request) {
+        requireAnyRole(RESERVATION_MANAGEMENT_ROLES);
+
+        LocalDateTime reservationDateTime = LocalDateTime.of(request.getReservationDate(), request.getReservationTime());
+        LocalDateTime earliestReservationDateTime = LocalDateTime.now().plusHours(MIN_ADVANCE_BOOKING_HOURS);
+        if (reservationDateTime.isBefore(earliestReservationDateTime)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Reservations must be made at least 2 hours in advance.");
+        }
+
+        validateTableAvailability(
+                request.getReservationDate(),
+                request.getReservationTime(),
+                request.getNumberOfGuests());
+
+        Reservation reservation = new Reservation();
+        reservation.setFullName(request.getFullName());
+        reservation.setPhone(request.getPhone());
+        reservation.setEmail(request.getEmail());
+        reservation.setReservationDate(request.getReservationDate());
+        reservation.setReservationTime(request.getReservationTime());
+        reservation.setNumberOfGuests(request.getNumberOfGuests());
+        reservation.setNote(request.getNote());
+        reservation.setStatus(ReservationStatus.CONFIRMED);
+        reservation.setCustomerId(null);
+
+        ReservationResponse response = toResponse(reservationRepository.save(reservation));
+        reservationAutoTableLockService.lockTablesForUpcomingReservations();
+        return response;
     }
 
     // XEM LỊCH SỬ ĐẶT BÀN CỦA TÔI (Dành cho Khách hàng)
@@ -119,13 +150,13 @@ public class ReservationServiceImpl implements ReservationService {
     @Override
     public ReservationResponse cancelReservation(Long reservationId) {
         Reservation reservation = reservationRepository.findById(reservationId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn đặt bàn này"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found."));
 
         // 1. Nếu đơn đã xong, đã hủy từ trước hoặc đã quá hạn (No-show) thì không cho hủy nữa
         if (reservation.getStatus() == ReservationStatus.COMPLETED
                 || reservation.getStatus() == ReservationStatus.CANCELLED
                 || reservation.getStatus() == ReservationStatus.NO_SHOW) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Không thể hủy đơn đặt bàn ở trạng thái này!");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "This reservation cannot be cancelled in its current status.");
         }
 
         // 2. Nếu đơn này đã đi kèm một Order gọi món đang mở (OPEN), yêu cầu phải xử lý hủy/đóng Order trước
@@ -134,7 +165,7 @@ public class ReservationServiceImpl implements ReservationService {
                 .ifPresent(order -> {
                     throw new ResponseStatusException(
                             HttpStatus.CONFLICT,
-                            "Đơn đặt bàn này đang có hóa đơn gọi món chưa đóng. Vui lòng xử lý hóa đơn trước!"
+                            "This reservation has an open order. Please close or resolve the order first."
                     );
                 });
 
@@ -142,7 +173,7 @@ public class ReservationServiceImpl implements ReservationService {
         if (!hasAnyRole(RESERVATION_MANAGEMENT_ROLES)) {
             String email = getCurrentEmailRequired();
             if (!reservation.getEmail().equalsIgnoreCase(email)) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền hủy đơn đặt bàn của người khác!");
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You are not allowed to cancel another customer's reservation.");
             }
         }
 
@@ -158,11 +189,11 @@ public class ReservationServiceImpl implements ReservationService {
         requireAnyRole(RESERVATION_MANAGEMENT_ROLES);
 
         Reservation reservation = reservationRepository.findById(reservationId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn đặt bàn"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found."));
 
         // 1. Chỉ chấp nhận xác nhận đơn đang ở trạng thái CHỜ XỬ LÝ (PENDING)
         if (reservation.getStatus() != ReservationStatus.PENDING) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Chỉ có thể xác nhận đơn đặt bàn ở trạng thái Chờ xử lý!");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only pending reservations can be confirmed.");
         }
 
         // 2. Tái kiểm tra xem nhà hàng có còn đủ ghế trống hay không trước khi chốt đơn
@@ -184,16 +215,16 @@ public class ReservationServiceImpl implements ReservationService {
         requireAnyRole(STAFF_ROLES); // Nhân viên bất kỳ đều có thể xếp bàn cho khách
 
         Reservation reservation = reservationRepository.findById(reservationId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy đơn đặt bàn"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found."));
 
         if (reservation.getStatus() == ReservationStatus.CANCELLED || reservation.getStatus() == ReservationStatus.NO_SHOW) {
-            throw new BusinessException("Không thể gán bàn cho đơn đã bị hủy hoặc khách không đến!");
+            throw new BusinessException("Cannot assign tables to a cancelled or no-show reservation.");
         }
 
         // 1. Kiểm tra danh sách bàn được chọn từ giao diện gửi lên
         List<RestaurantTable> selectedTables = tableRepository.findAllById(request.getTableIds());
         if (selectedTables.size() != request.getTableIds().size()) {
-            throw new BusinessException("Danh sách bàn được chọn không tồn tại hoặc không hợp lệ!");
+            throw new BusinessException("The selected table list does not exist or is invalid.");
         }
 
         // 2. Đảm bảo toàn bộ các bàn được chọn đều đang hoạt động và đang ở trạng thái Trống hoặc Đã đặt trước
@@ -201,7 +232,7 @@ public class ReservationServiceImpl implements ReservationService {
             boolean assignableStatus = table.getStatus() == RestaurantTable.TableStatus.AVAILABLE
                     || table.getStatus() == RestaurantTable.TableStatus.RESERVED;
             if (!Boolean.TRUE.equals(table.getIsActive()) || !assignableStatus) {
-                throw new BusinessException("Bàn số " + table.getTableNumber() + " hiện đang không khả dụng (Đang có khách ngồi hoặc bị khóa)!");
+                throw new BusinessException("Table " + table.getTableNumber() + " is currently unavailable.");
             }
         }
 
@@ -210,8 +241,8 @@ public class ReservationServiceImpl implements ReservationService {
                 .mapToInt(RestaurantTable::getCapacity)
                 .sum();
         if (totalCapacity < reservation.getNumberOfGuests()) {
-            throw new BusinessException("Tổng sức chứa của các bàn đã chọn (" + totalCapacity + " chỗ) không đủ cho "
-                    + reservation.getNumberOfGuests() + " khách!");
+            throw new BusinessException("The selected tables can seat only " + totalCapacity
+                    + " guests, which is not enough for " + reservation.getNumberOfGuests() + " guests.");
         }
 
         // 4. Liên kết các bàn với đơn đặt, cập nhật trạng thái đơn sang ĐÃ ĐẾN (ARRIVED) và đổi trạng thái bàn sang ĐANG PHỤC VỤ (OCCUPIED)
@@ -234,11 +265,11 @@ public class ReservationServiceImpl implements ReservationService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Khong tim thay don dat ban"));
 
         if (reservation.getStatus() != ReservationStatus.ARRIVED) {
-            throw new BusinessException("Chi co the doi ban cho khach da check-in!");
+            throw new BusinessException("Tables can only be changed after the guest has checked in.");
         }
 
         if (request.getTableIds() == null || request.getTableIds().isEmpty()) {
-            throw new BusinessException("Vui long chon ban moi!");
+            throw new BusinessException("Please select the new tables.");
         }
 
         List<RestaurantTable> currentTables = new java.util.ArrayList<>();
@@ -261,7 +292,7 @@ public class ReservationServiceImpl implements ReservationService {
                     || table.getStatus() == RestaurantTable.TableStatus.RESERVED
                     || (keepingSameTable && table.getStatus() == RestaurantTable.TableStatus.OCCUPIED);
             if (!Boolean.TRUE.equals(table.getIsActive()) || !assignableStatus) {
-                throw new BusinessException("Ban so " + table.getTableNumber() + " hien dang khong kha dung!");
+                throw new BusinessException("Table " + table.getTableNumber() + " is currently unavailable.");
             }
         }
 
@@ -269,7 +300,8 @@ public class ReservationServiceImpl implements ReservationService {
                 .mapToInt(RestaurantTable::getCapacity)
                 .sum();
         if (totalCapacity < reservation.getNumberOfGuests()) {
-            throw new BusinessException("Tong suc chua cua ban moi khong du cho " + reservation.getNumberOfGuests() + " khach!");
+            throw new BusinessException("The new tables do not have enough seats for "
+                    + reservation.getNumberOfGuests() + " guests.");
         }
 
         currentTables.stream()
@@ -293,21 +325,22 @@ public class ReservationServiceImpl implements ReservationService {
         LocalTime requestedEnd = requestedStart.plusMinutes(AVERAGE_DINING_MINUTES);
         LocalTime overlapStart = requestedStart.minusMinutes(AVERAGE_DINING_MINUTES);
 
-        // 1. Tính tổng số ghế hiện có của toàn bộ nhà hàng
-        long totalActiveCapacity = Optional.ofNullable(tableRepository.sumActiveRestaurantSeats()).orElse(0L);
+        // 1. Chỉ tính ghế của các bàn đang AVAILABLE. Bàn RESERVED/CLEANING/OCCUPIED không còn bán được cho đơn mới.
+        long availableTableCapacity = Optional.ofNullable(tableRepository.sumAvailableActiveRestaurantSeats()).orElse(0L);
 
         // 2. Tính tổng số ghế đã bị chiếm dụng bởi các đơn đặt bàn khác trong cùng khung giờ xung đột
         long unavailableCapacity = reservationRepository
                 .findUnavailableTablesForReservationWindow(reservationDate, overlapStart, requestedEnd)
                 .stream()
                 .filter(table -> Boolean.TRUE.equals(table.getIsActive()))
+                .filter(table -> table.getStatus() == RestaurantTable.TableStatus.AVAILABLE)
                 .mapToLong(RestaurantTable::getCapacity)
                 .sum();
 
-        // 3. Số ghế còn trống = Tổng số ghế - Số ghế đã bị giữ
-        long availableCapacity = totalActiveCapacity - unavailableCapacity;
+        // 3. Số ghế còn trống = Ghế AVAILABLE - Ghế AVAILABLE đã bị giữ bởi đơn khác cùng khung giờ
+        long availableCapacity = availableTableCapacity - unavailableCapacity;
         if (availableCapacity < requestedGuests) {
-            throw new BusinessException("Nhà hàng đã hết chỗ trong khung giờ này. Vui lòng chọn thời gian khác hoặc giảm số lượng khách!");
+            throw new BusinessException("No tables are available for this time slot. Please choose another time or reduce the number of guests.");
         }
     }
 
@@ -392,13 +425,13 @@ public class ReservationServiceImpl implements ReservationService {
     // BẮT BUỘC PHẢI CÓ EMAIL ĐĂNG NHẬP, NẾU KHÔNG TRẢ VỀ LỖI 401 UNAUTHORIZED
     private String getCurrentEmailRequired() {
         return getCurrentEmailOptional()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Vui lòng đăng nhập để thực hiện thao tác này!"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Please log in to perform this action."));
     }
 
     // KIỂM TRA QUYỀN HẠN, NẾU KHÔNG ĐỦ QUYỀN TRẢ VỀ LỖI 403 FORBIDDEN
     private void requireAnyRole(Set<String> roles) {
         if (!hasAnyRole(roles)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Bạn không có quyền thực hiện chức năng này!");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You do not have permission to perform this action.");
         }
     }
 
