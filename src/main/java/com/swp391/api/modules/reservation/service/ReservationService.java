@@ -7,6 +7,7 @@ import java.util.List;
 
 public interface ReservationService {
     ReservationResponse createReservation(CreateReservationRequest request);
+    ReservationResponse createWalkInReservation(CreateReservationRequest request);
     List<ReservationResponse> getMyReservations();
     List<ReservationResponse> getAllReservations();
     ReservationResponse cancelReservation(Long reservationId);

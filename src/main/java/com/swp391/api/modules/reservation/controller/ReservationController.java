@@ -30,6 +30,11 @@ public class ReservationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(reservationService.createReservation(request));
     }
 
+    @PostMapping("/walk-in")
+    public ResponseEntity<ReservationResponse> createWalkInReservation(@Valid @RequestBody CreateReservationRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(reservationService.createWalkInReservation(request));
+    }
+
     @GetMapping("/me")
     public ResponseEntity<List<ReservationResponse>> getMyReservations() {
         return ResponseEntity.ok(reservationService.getMyReservations());

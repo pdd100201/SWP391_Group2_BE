@@ -188,8 +188,9 @@ public class ReservationAutoTableLockServiceImpl implements ReservationAutoTable
     /**
      * So sánh hai tổ hợp bàn để chọn phương án tốt hơn.
      *
-     * <p>Ưu tiên tổng sức chứa nhỏ hơn để tránh lãng phí ghế. Nếu bằng nhau thì ưu tiên
-     * dùng ít bàn hơn. Nếu vẫn bằng nhau thì chọn tổ hợp có id bàn nhỏ hơn để kết quả ổn định.</p>
+     * <p>Ưu tiên dùng ít bàn hơn để không tách khách khi có một bàn đủ chỗ. Nếu số bàn bằng nhau
+     * thì ưu tiên tổng sức chứa nhỏ hơn để tránh lãng phí ghế. Nếu vẫn bằng nhau thì chọn tổ hợp
+     * có id bàn nhỏ hơn để kết quả ổn định.</p>
      */
     private boolean isBetterCombination(List<RestaurantTable> current,
                                         List<RestaurantTable> best,
@@ -198,14 +199,14 @@ public class ReservationAutoTableLockServiceImpl implements ReservationAutoTable
             return true;
         }
 
+        if (current.size() != best.size()) {
+            return current.size() < best.size();
+        }
+
         int currentCapacity = totalCapacity(current);
         int bestCapacity = totalCapacity(best);
         if (currentCapacity != bestCapacity) {
             return currentCapacity < bestCapacity;
-        }
-
-        if (current.size() != best.size()) {
-            return current.size() < best.size();
         }
 
         Long currentFirstId = current.stream().map(RestaurantTable::getId).min(Comparator.naturalOrder()).orElse(Long.MAX_VALUE);

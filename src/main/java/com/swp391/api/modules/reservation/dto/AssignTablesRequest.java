@@ -5,7 +5,7 @@ import java.util.List;
 
 public class AssignTablesRequest {
 
-    @NotEmpty(message = "Phải chọn ít nhất 1 bàn")
+    @NotEmpty(message = "Please select at least one table.")
     private List<Long> tableIds;
 
     public List<Long> getTableIds() {
