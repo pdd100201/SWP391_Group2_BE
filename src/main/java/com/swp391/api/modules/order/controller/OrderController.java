@@ -3,6 +3,7 @@ package com.swp391.api.modules.order.controller;
 import com.swp391.api.modules.order.dto.AddOrderItemRequest;
 import com.swp391.api.modules.order.dto.ApplyPromotionRequest;
 import com.swp391.api.modules.order.dto.CreateOrderRequest;
+import com.swp391.api.modules.order.dto.OrderGroupResponse;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.dto.UpdateOrderItemRequest;
 import com.swp391.api.modules.order.dto.UpdateOrderItemStatusRequest;
@@ -41,6 +42,17 @@ public class OrderController {
     public ResponseEntity<List<OrderResponse>> getOrders(
             @RequestParam(name = "active", defaultValue = "false") boolean activeOnly) {
         return ResponseEntity.ok(orderService.getOrders(activeOnly));
+    }
+
+    @GetMapping("/groups")
+    public ResponseEntity<List<OrderGroupResponse>> getGroups(
+            @RequestParam(name = "active", defaultValue = "false") boolean activeOnly) {
+        return ResponseEntity.ok(orderService.getGroups(activeOnly));
+    }
+
+    @GetMapping("/groups/{reservationId}")
+    public ResponseEntity<OrderGroupResponse> getGroup(@PathVariable Long reservationId) {
+        return ResponseEntity.ok(orderService.getGroup(reservationId));
     }
 
     @GetMapping("/{orderId}")

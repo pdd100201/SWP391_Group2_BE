@@ -15,6 +15,8 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     Optional<Payment> findFirstByOrder_IdAndStatusOrderByCreatedAtDesc(Long orderId, PaymentStatus status);
 
+    Optional<Payment> findFirstByBill_IdOrderByCreatedAtDesc(Long billId);
+
     Optional<Payment> findByPaymentCode(String paymentCode);
 
     boolean existsByProviderTransactionId(String providerTransactionId);

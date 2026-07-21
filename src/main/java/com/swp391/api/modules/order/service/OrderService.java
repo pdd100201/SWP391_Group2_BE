@@ -6,6 +6,7 @@ import com.swp391.api.modules.menu.repository.MenuItemRepository;
 import com.swp391.api.modules.menu.service.MenuService;
 import com.swp391.api.modules.order.dto.AddOrderItemRequest;
 import com.swp391.api.modules.order.dto.CreateOrderRequest;
+import com.swp391.api.modules.order.dto.OrderGroupResponse;
 import com.swp391.api.modules.order.dto.OrderItemResponse;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.dto.UpdateOrderItemRequest;
@@ -16,6 +17,9 @@ import com.swp391.api.modules.order.entity.RestaurantOrder;
 import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.payment.entity.Payment;
 import com.swp391.api.modules.payment.entity.PaymentStatus;
+import com.swp391.api.modules.payment.dto.BillResponse;
+import com.swp391.api.modules.payment.entity.Bill;
+import com.swp391.api.modules.payment.repository.BillRepository;
 import com.swp391.api.modules.payment.repository.PaymentRepository;
 import com.swp391.api.modules.qr.entity.QrOrder;
 import com.swp391.api.modules.qr.entity.QrOrderItem;
@@ -67,6 +71,7 @@ public class OrderService {
     private final UserRepository userRepository;
     private final MenuService menuService;
     private final PromotionRepository promotionRepository;
+    private final BillRepository billRepository;
     private final PaymentRepository paymentRepository;
     private final QrOrderRepository qrOrderRepository;
     private final QrOrderItemRepository qrOrderItemRepository;
@@ -80,6 +85,7 @@ public class OrderService {
             UserRepository userRepository,
             MenuService menuService,
             PromotionRepository promotionRepository,
+            BillRepository billRepository,
             PaymentRepository paymentRepository,
             QrOrderRepository qrOrderRepository,
             QrOrderItemRepository qrOrderItemRepository,
@@ -91,6 +97,7 @@ public class OrderService {
         this.userRepository = userRepository;
         this.menuService = menuService;
         this.promotionRepository = promotionRepository;
+        this.billRepository = billRepository;
         this.paymentRepository = paymentRepository;
         this.qrOrderRepository = qrOrderRepository;
         this.qrOrderItemRepository = qrOrderItemRepository;
@@ -181,6 +188,93 @@ public class OrderService {
         // Active Orders chỉ chứa order vẫn đang được phục vụ hoặc chưa thanh toán.
         // Order bị hủy luôn bị loại; Order đã phục vụ và đã thanh toán sẽ được quản lý ở lịch sử tổng.
         return orders.stream().filter(this::isActiveOrder).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderGroupResponse> getGroups(boolean activeOnly) {
+        Map<Long, List<OrderResponse>> grouped = new LinkedHashMap<>();
+        getOrders(false).stream()
+                .filter(order -> order.reservationId() != null)
+                .forEach(order -> grouped.computeIfAbsent(order.reservationId(), ignored -> new ArrayList<>()).add(order));
+
+        return grouped.entrySet().stream()
+                .map(entry -> toGroupResponse(entry.getKey(), entry.getValue()))
+                .filter(group -> !activeOnly || isActiveGroup(group))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public OrderGroupResponse getGroup(Long reservationId) {
+        List<OrderResponse> orders = getOrders(false).stream()
+                .filter(order -> Objects.equals(order.reservationId(), reservationId))
+                .toList();
+        if (orders.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Order group not found");
+        }
+        return toGroupResponse(reservationId, orders);
+    }
+
+    private OrderGroupResponse toGroupResponse(Long reservationId, List<OrderResponse> orders) {
+        Reservation reservation = reservationRepository.findById(reservationId).orElse(null);
+        BigDecimal subtotal = orders.stream()
+                .filter(order -> order.status() != OrderStatus.CANCELLED)
+                .map(OrderResponse::subtotal)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+        BillResponse bill = billRepository.findByReservation_ReservationId(reservationId)
+                .map(this::toBillResponse)
+                .orElse(null);
+        BigDecimal discount = bill == null ? BigDecimal.ZERO : bill.discountAmount();
+        BigDecimal total = bill == null ? subtotal : bill.total();
+        LocalDateTime createdAt = orders.stream().map(OrderResponse::createdAt).filter(Objects::nonNull)
+                .min(LocalDateTime::compareTo).orElse(null);
+        LocalDateTime updatedAt = orders.stream().map(OrderResponse::updatedAt).filter(Objects::nonNull)
+                .max(LocalDateTime::compareTo).orElse(null);
+        return new OrderGroupResponse(
+                reservationId,
+                reservation == null ? orders.get(0).reservationGuestName() : reservation.getFullName(),
+                reservation == null ? orders.get(0).reservationStatus() : reservation.getStatus(),
+                subtotal,
+                discount,
+                total,
+                bill,
+                orders,
+                createdAt,
+                updatedAt);
+    }
+
+    public BillResponse toBillResponse(Bill bill) {
+        Payment payment = paymentRepository.findFirstByBill_IdOrderByCreatedAtDesc(bill.getId()).orElse(null);
+        Promotion promotion = bill.getPromotion();
+        return new BillResponse(
+                bill.getId(),
+                bill.getBillCode(),
+                bill.getReservation().getReservationId(),
+                bill.getStatus().name(),
+                promotion == null ? null : promotion.getId(),
+                promotion == null ? null : promotion.getCode(),
+                promotion == null ? null : promotion.getPromotionName(),
+                bill.getSubtotal(),
+                bill.getDiscountAmount(),
+                bill.getTotal(),
+                payment == null ? null : payment.getProvider(),
+                payment == null ? bill.getStatus().name() : payment.getStatus().name(),
+                payment == null ? null : payment.getPaymentCode(),
+                payment == null ? null : payment.getQrImageUrl(),
+                payment == null ? bill.getPaidAt() : payment.getPaidAt(),
+                bill.getLockedAt(),
+                bill.getCreatedAt(),
+                bill.getUpdatedAt());
+    }
+
+    private boolean isActiveGroup(OrderGroupResponse group) {
+        if (group.reservationStatus() != ReservationStatus.ARRIVED) return false;
+        boolean serviceInProgress = group.orders().stream().anyMatch(this::isActiveOrder);
+        boolean paymentOutstanding = group.bill() != null
+                && group.bill().total().compareTo(BigDecimal.ZERO) > 0
+                && !"PAID".equals(group.bill().status());
+        return serviceInProgress || paymentOutstanding;
     }
 
     private OrderResponse qrToResponse(QrOrder qrOrder) {
