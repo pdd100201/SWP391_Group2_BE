@@ -34,8 +34,8 @@ public class OrderController {
     }
 
     @PostMapping
-    public ResponseEntity<OrderResponse> create(@Valid @RequestBody CreateOrderRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.create(request));
+    public ResponseEntity<OrderGroupResponse> create(@Valid @RequestBody CreateOrderRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.createTableOrders(request));
     }
 
     @GetMapping

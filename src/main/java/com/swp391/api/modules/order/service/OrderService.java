@@ -111,15 +111,17 @@ public class OrderService {
         if (reservation.getStatus() != ReservationStatus.ARRIVED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation must be checked in before opening an order");
         }
-        Long assignedTableId = resolvePrimaryTableId(reservation);
-        if (assignedTableId == null) {
+        List<RestaurantTable> assignedTables = findAssignedTables(reservation);
+        if (assignedTables.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation must be assigned to a table before opening an order");
         }
+        Long assignedTableId = resolvePrimaryTableId(reservation);
         if (reservation.getTableId() == null) {
             reservation.setTableId(assignedTableId);
         }
-        if (findDisplayOrderForReservation(reservation.getReservationId()).isPresent()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation already has an order");
+        if (orderRepository.findByReservationReservationIdAndTableId(
+                reservation.getReservationId(), assignedTableId).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This table already has an order");
         }
         RestaurantTable table = tableRepository.findByIdForUpdate(assignedTableId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned table not found"));
@@ -142,14 +144,62 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    public OrderGroupResponse createTableOrders(CreateOrderRequest request) {
+        User waiter = currentUserRequired();
+        Reservation reservation = reservationRepository.findByIdForUpdate(request.getReservationId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
+        if (reservation.getStatus() != ReservationStatus.ARRIVED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation must be checked in before opening an order");
+        }
+        List<RestaurantTable> assignedTables = findAssignedTables(reservation);
+        if (assignedTables.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation must be assigned to a table before opening an order");
+        }
+        if (reservation.getTableId() == null) {
+            reservation.setTableId(assignedTables.get(0).getId());
+        }
+
+        for (RestaurantTable assignedTable : assignedTables) {
+            Long tableId = assignedTable.getId();
+            if (orderRepository.findByReservationReservationIdAndTableId(
+                    reservation.getReservationId(), tableId).isPresent()) {
+                continue;
+            }
+            RestaurantTable table = tableRepository.findByIdForUpdate(tableId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Assigned table not found"));
+            if (!Boolean.TRUE.equals(table.getIsActive())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Assigned table is not active");
+            }
+            if (table.getStatus() != RestaurantTable.TableStatus.OCCUPIED) {
+                table.setStatus(RestaurantTable.TableStatus.OCCUPIED);
+            }
+            RestaurantOrder order = newOrder(reservation, tableId, waiter, request.getNote());
+            orderRepository.save(order);
+        }
+        return getGroup(reservation.getReservationId());
+    }
+
+    private RestaurantOrder newOrder(Reservation reservation, Long tableId, User waiter, String note) {
+        RestaurantOrder order = new RestaurantOrder();
+        order.setOrderCode("ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        order.setReservation(reservation);
+        order.setTableId(tableId);
+        order.setWaiter(waiter);
+        order.setPublicAccessToken(UUID.randomUUID().toString().replace("-", ""));
+        order.setStatus(OrderStatus.OPEN);
+        order.setNote(normalize(note));
+        return order;
+    }
+
     // Called by QR flow when no open restaurant_order exists for the table yet.
     public OrderResponse createForTable(Long tableId, Long waiterId) {
         Reservation reservation = reservationRepository.findActiveReservationByTableId(tableId)
                 .or(() -> reservationRepository.findByTableIdAndStatus(tableId, ReservationStatus.ARRIVED))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "No checked-in reservation found for table " + tableId));
-        if (orderRepository.findByReservationReservationId(reservation.getReservationId()).isPresent()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation already has an order");
+        if (orderRepository.findByReservationReservationIdAndTableId(reservation.getReservationId(), tableId).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This table already has an order");
         }
         User waiter = userRepository.findById(waiterId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Waiter not found"));
@@ -166,6 +216,7 @@ public class OrderService {
         order.setOrderCode("ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
                 + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
         order.setReservation(reservation);
+        order.setTableId(tableId);
         order.setWaiter(waiter);
         order.setPublicAccessToken(UUID.randomUUID().toString().replace("-", ""));
         order.setStatus(OrderStatus.OPEN);
@@ -726,8 +777,10 @@ public class OrderService {
                 : calculateDiscount(order.getPromotion(), subtotal);
         BigDecimal total = subtotal.subtract(discountAmount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         Reservation reservation = order.getReservation();
-        RestaurantTable table = findAssignedTable(reservation);
-        List<RestaurantTable> assignedTables = findAssignedTables(reservation);
+        RestaurantTable table = findOrderTable(order);
+        List<Long> tableIds = order.getTableId() == null ? List.of() : List.of(order.getTableId());
+        List<String> tableNumbers = table == null || table.getTableNumber() == null ? List.of() : List.of(table.getTableNumber());
+        List<String> tableNames = table == null || table.getTableName() == null ? List.of() : List.of(table.getTableName());
         Promotion promotion = order.getPromotion();
         Payment payment = paymentRepository.findFirstByOrder_IdOrderByCreatedAtDesc(order.getId()).orElse(null);
         return new OrderResponse(
@@ -736,12 +789,12 @@ public class OrderService {
                 reservation.getReservationId(),
                 reservation.getFullName(),
                 reservation.getStatus(),
-                reservation.getTableId(),
-                assignedTables.stream().map(RestaurantTable::getId).toList(),
+                order.getTableId(),
+                tableIds,
                 table == null ? null : table.getTableNumber(),
-                assignedTables.stream().map(RestaurantTable::getTableNumber).toList(),
+                tableNumbers,
                 table == null ? null : table.getTableName(),
-                assignedTables.stream().map(RestaurantTable::getTableName).toList(),
+                tableNames,
                 table == null || table.getStatus() == null ? null : table.getStatus().name(),
                 order.getWaiter().getUserId(),
                 order.getWaiter().getFullName(),
@@ -834,6 +887,13 @@ public class OrderService {
         Long tableId = resolvePrimaryTableId(reservation);
         if (tableId == null) return null;
         return tableRepository.findById(tableId).orElse(null);
+    }
+
+    private RestaurantTable findOrderTable(RestaurantOrder order) {
+        if (order.getTableId() == null) {
+            return findAssignedTable(order.getReservation());
+        }
+        return tableRepository.findById(order.getTableId()).orElse(null);
     }
 
     private List<RestaurantTable> findAssignedTables(Reservation reservation) {

@@ -11,8 +11,8 @@ import org.springframework.data.repository.query.Param;
 
 // Order persistence queries, including pessimistic locks for inventory-sensitive updates.
 public interface OrderRepository extends JpaRepository<RestaurantOrder, Long> {
-    Optional<RestaurantOrder> findByReservationReservationId(Long reservationId);
     List<RestaurantOrder> findAllByReservationReservationIdOrderByCreatedAtDesc(Long reservationId);
+    Optional<RestaurantOrder> findByReservationReservationIdAndTableId(Long reservationId, Long tableId);
     Optional<RestaurantOrder> findByPublicAccessToken(String publicAccessToken);
     List<RestaurantOrder> findAllByOrderByCreatedAtDesc();
 
@@ -29,7 +29,7 @@ public interface OrderRepository extends JpaRepository<RestaurantOrder, Long> {
             select o
             from RestaurantOrder o
             where o.status = com.swp391.api.modules.order.entity.OrderStatus.OPEN
-              and o.reservation.tableId = :tableId
+              and o.tableId = :tableId
             order by o.createdAt desc
             """)
     List<RestaurantOrder> findOpenOrdersByTableIdForUpdate(@Param("tableId") Long tableId);

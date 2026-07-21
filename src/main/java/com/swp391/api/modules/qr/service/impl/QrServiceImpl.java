@@ -300,7 +300,7 @@ public class QrServiceImpl implements QrService {
         // Fallback: staff-created (RE) order linked via reservation
         return reservationRepository.findActiveReservationByTableId(tableId)
                 .or(() -> reservationRepository.findReservedReservationByTableId(tableId))
-                .flatMap(r -> restaurantOrderRepository.findByReservationReservationId(r.getReservationId()))
+                .flatMap(r -> restaurantOrderRepository.findByReservationReservationIdAndTableId(r.getReservationId(), tableId))
                 .filter(o -> o.getStatus() == OrderStatus.OPEN)
                 .map(o -> buildOrderResponseFromRestaurantOrder(o, tableId));
     }
