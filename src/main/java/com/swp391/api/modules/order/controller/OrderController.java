@@ -90,6 +90,11 @@ public class OrderController {
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.createSepayPayment(orderId));
     }
 
+    @PostMapping("/{orderId}/payment/cash")
+    public ResponseEntity<OrderResponse> createCashPayment(@PathVariable Long orderId) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.createCashPayment(orderId));
+    }
+
     @PatchMapping("/{orderId}/close")
     public ResponseEntity<OrderResponse> close(@PathVariable Long orderId) {
         return ResponseEntity.ok(orderService.close(orderId));

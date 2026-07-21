@@ -9,8 +9,11 @@ import com.swp391.api.modules.order.entity.RestaurantOrder;
 import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.payment.dto.PaymentResponse;
 import com.swp391.api.modules.payment.dto.SepayWebhookRequest;
+import com.swp391.api.modules.payment.entity.Bill;
+import com.swp391.api.modules.payment.entity.BillStatus;
 import com.swp391.api.modules.payment.entity.Payment;
 import com.swp391.api.modules.payment.entity.PaymentStatus;
+import com.swp391.api.modules.payment.repository.BillRepository;
 import com.swp391.api.modules.payment.repository.PaymentRepository;
 import com.swp391.api.modules.payment.service.PaymentService;
 import com.swp391.api.modules.payment.service.SepayProperties;
@@ -32,16 +35,19 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
+    private final BillRepository billRepository;
     private final OrderRepository orderRepository;
     private final SepayProperties sepayProperties;
     private final ObjectMapper objectMapper;
 
     public PaymentServiceImpl(
             PaymentRepository paymentRepository,
+            BillRepository billRepository,
             OrderRepository orderRepository,
             SepayProperties sepayProperties,
             ObjectMapper objectMapper) {
         this.paymentRepository = paymentRepository;
+        this.billRepository = billRepository;
         this.orderRepository = orderRepository;
         this.sepayProperties = sepayProperties;
         this.objectMapper = objectMapper;
@@ -73,6 +79,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         Payment payment = new Payment();
         payment.setOrder(order);
+        payment.setBill(prepareBill(order, total, BillStatus.PENDING, null));
         payment.setProvider("SEPAY");
         payment.setStatus(PaymentStatus.PENDING);
         payment.setAmount(total);
@@ -106,11 +113,13 @@ public class PaymentServiceImpl implements PaymentService {
 
         Payment payment = new Payment();
         payment.setOrder(order);
+        LocalDateTime paidAt = LocalDateTime.now();
+        payment.setBill(prepareBill(order, total, BillStatus.PAID, paidAt));
         payment.setProvider("CASH");
         payment.setStatus(PaymentStatus.PAID);
         payment.setAmount(total);
         payment.setPaymentCode(buildCashPaymentCode(order));
-        payment.setPaidAt(LocalDateTime.now());
+        payment.setPaidAt(paidAt);
         return toResponse(paymentRepository.save(payment));
     }
 
@@ -147,6 +156,8 @@ public class PaymentServiceImpl implements PaymentService {
         payment.setStatus(PaymentStatus.PAID);
         payment.setProviderTransactionId(transactionId);
         payment.setPaidAt(LocalDateTime.now());
+        payment.getBill().setStatus(BillStatus.PAID);
+        payment.getBill().setPaidAt(payment.getPaidAt());
         payment.setRawPayload(toJson(request));
         paymentRepository.save(payment);
         return Map.of("success", true);
@@ -202,6 +213,29 @@ public class PaymentServiceImpl implements PaymentService {
 
     private String buildCashPaymentCode(RestaurantOrder order) {
         return "CASHORD" + order.getId() + "PAY" + System.currentTimeMillis();
+    }
+
+    private Bill prepareBill(RestaurantOrder order, BigDecimal total, BillStatus status, LocalDateTime paidAt) {
+        Long reservationId = order.getReservation().getReservationId();
+        Bill bill = billRepository.findByReservation_ReservationId(reservationId).orElseGet(() -> {
+            Bill newBill = new Bill();
+            newBill.setBillCode("BILL-" + reservationId + "-" + System.currentTimeMillis());
+            newBill.setReservation(order.getReservation());
+            return newBill;
+        });
+        BigDecimal subtotal = order.getItems().stream()
+                .filter(item -> item.getStatus() != OrderItemStatus.CANCELLED)
+                .map(OrderItem::getSubtotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
+        bill.setPromotion(order.getPromotion());
+        bill.setSubtotal(subtotal);
+        bill.setDiscountAmount(subtotal.subtract(total).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
+        bill.setTotal(total);
+        bill.setStatus(status);
+        bill.setLockedAt(LocalDateTime.now());
+        bill.setPaidAt(paidAt);
+        return billRepository.save(bill);
     }
 
     private String buildQrImageUrl(Payment payment) {

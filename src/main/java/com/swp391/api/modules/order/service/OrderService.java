@@ -39,6 +39,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -100,7 +101,7 @@ public class OrderService {
         if (reservation.getTableId() == null) {
             reservation.setTableId(assignedTableId);
         }
-        if (orderRepository.findByReservationReservationId(reservation.getReservationId()).isPresent()) {
+        if (findDisplayOrderForReservation(reservation.getReservationId()).isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Reservation already has an order");
         }
         RestaurantTable table = tableRepository.findByIdForUpdate(assignedTableId)
@@ -116,6 +117,7 @@ public class OrderService {
         order.setOrderCode("ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
                 + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
         order.setReservation(reservation);
+        order.setTableId(assignedTableId);
         order.setWaiter(waiter);
         order.setPublicAccessToken(UUID.randomUUID().toString().replace("-", ""));
         order.setStatus(OrderStatus.OPEN);
@@ -150,7 +152,7 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderResponse getByReservation(Long reservationId) {
-        return toResponse(orderRepository.findByReservationReservationId(reservationId)
+        return toResponse(findDisplayOrderForReservation(reservationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found")));
     }
 
@@ -321,6 +323,13 @@ public class OrderService {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
         paymentService.createSepayPayment(order.getId());
+        return toResponse(order);
+    }
+
+    public OrderResponse createCashPayment(Long orderId) {
+        RestaurantOrder order = findOrderForUpdate(orderId);
+        requireOpen(order);
+        paymentService.createCashPayment(order.getId());
         return toResponse(order);
     }
 
@@ -656,6 +665,14 @@ public class OrderService {
         boolean allowed = authentication != null && !(authentication instanceof AnonymousAuthenticationToken)
                 && authentication.getAuthorities().stream().map(GrantedAuthority::getAuthority).anyMatch(roles::contains);
         if (!allowed) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden");
+    }
+
+    private Optional<RestaurantOrder> findDisplayOrderForReservation(Long reservationId) {
+        List<RestaurantOrder> orders = orderRepository.findAllByReservationReservationIdOrderByCreatedAtDesc(reservationId);
+        return orders.stream()
+                .filter(order -> order.getOrderCode() == null || !order.getOrderCode().startsWith("ORD-MIG-"))
+                .findFirst()
+                .or(() -> orders.stream().findFirst());
     }
 
     private String normalize(String value) {

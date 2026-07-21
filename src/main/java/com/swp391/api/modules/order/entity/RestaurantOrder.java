@@ -41,6 +41,9 @@ public class RestaurantOrder extends BaseAuditableEntity {
     @JoinColumn(name = "reservation_id", nullable = false, unique = true)
     private Reservation reservation;
 
+    @Column(name = "table_id", nullable = false)
+    private Long tableId;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "waiter_id", nullable = false)
     private User waiter;
@@ -82,6 +85,8 @@ public class RestaurantOrder extends BaseAuditableEntity {
     public void setOrderCode(String orderCode) { this.orderCode = orderCode; }
     public Reservation getReservation() { return reservation; }
     public void setReservation(Reservation reservation) { this.reservation = reservation; }
+    public Long getTableId() { return tableId; }
+    public void setTableId(Long tableId) { this.tableId = tableId; }
     public User getWaiter() { return waiter; }
     public void setWaiter(User waiter) { this.waiter = waiter; }
     public String getPublicAccessToken() { return publicAccessToken; }

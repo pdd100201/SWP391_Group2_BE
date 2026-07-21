@@ -25,7 +25,11 @@ public class Payment extends BaseAuditableEntity {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "order_id", nullable = false)
+    @JoinColumn(name = "bill_id", nullable = false)
+    private Bill bill;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "order_id")
     private RestaurantOrder order;
 
     @Column(nullable = false, length = 20)
@@ -57,6 +61,8 @@ public class Payment extends BaseAuditableEntity {
     private String rawPayload;
 
     public Long getId() { return id; }
+    public Bill getBill() { return bill; }
+    public void setBill(Bill bill) { this.bill = bill; }
     public RestaurantOrder getOrder() { return order; }
     public void setOrder(RestaurantOrder order) { this.order = order; }
     public String getProvider() { return provider; }
