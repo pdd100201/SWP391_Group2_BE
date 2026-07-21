@@ -30,10 +30,15 @@ public class QrOrderRequest {
         @Positive
         private Integer quantity;
 
+        private String note;
+
         public Long getItemId() { return itemId; }
         public void setItemId(Long itemId) { this.itemId = itemId; }
 
         public Integer getQuantity() { return quantity; }
         public void setQuantity(Integer quantity) { this.quantity = quantity; }
+
+        public String getNote() { return note; }
+        public void setNote(String note) { this.note = note; }
     }
 }
