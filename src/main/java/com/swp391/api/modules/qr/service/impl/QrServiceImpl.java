@@ -22,9 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.Optional;
@@ -150,18 +148,60 @@ public class QrServiceImpl implements QrService {
     @Override
     @Transactional(readOnly = true)
     public QrOrderResponse getOrderStatus(Long orderId) {
-        QrOrder order = orderRepository.findById(orderId)
+        Optional<QrOrder> qrOrder = orderRepository.findById(orderId);
+        if (qrOrder.isPresent()) {
+            List<QrOrderItem> items = orderItemRepository.findByOrderId(orderId);
+            double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
+            return buildOrderResponse(qrOrder.get(), items, totalAmount);
+        }
+        // Check restaurant_orders (created via QR flow)
+        RestaurantOrder ro = restaurantOrderRepository.findById(orderId)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
-        List<QrOrderItem> items = orderItemRepository.findByOrderId(orderId);
-        double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
-        return buildOrderResponse(order, items, totalAmount);
+        Long tableId = resolveTableId(ro);
+        return buildOrderResponseFromRestaurantOrder(ro, tableId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<QrOrderSummaryResponse> getAllOrders() {
+        List<QrOrderSummaryResponse> result = new ArrayList<>();
+
+        // Include OPEN restaurant_orders (created via QR auto-flow or by staff)
+        List<RestaurantOrder> restaurantOrders = restaurantOrderRepository.findAllByOrderByCreatedAtDesc()
+                .stream()
+                .filter(o -> o.getStatus() == OrderStatus.OPEN)
+                .collect(Collectors.toList());
+        for (RestaurantOrder ro : restaurantOrders) {
+            Long tableId = resolveTableId(ro);
+            String tableName = tableId != null
+                    ? tableRepository.findById(tableId)
+                            .map(t -> t.getTableName() != null ? t.getTableName() : "Bàn " + t.getId())
+                            .orElse("Bàn " + tableId)
+                    : null;
+            String guestName = ro.getReservation() != null ? ro.getReservation().getFullName() : null;
+            List<QrOrderResponse.OrderItemDto> itemDtos = ro.getItems().stream()
+                    .map(item -> {
+                        QrOrderResponse.OrderItemDto dto = new QrOrderResponse.OrderItemDto();
+                        dto.setOrderItemId(item.getId());
+                        dto.setItemStatus(item.getStatus() != null ? item.getStatus().name() : "DRAFT");
+                        dto.setSubtotal(item.getSubtotal() != null ? item.getSubtotal().doubleValue() : 0.0);
+                        return dto;
+                    }).collect(Collectors.toList());
+            double total = itemDtos.stream().mapToDouble(QrOrderResponse.OrderItemDto::getSubtotal).sum();
+            boolean anyDraft     = itemDtos.stream().anyMatch(i -> "DRAFT".equals(i.getItemStatus()));
+            boolean anyPreparing = itemDtos.stream().anyMatch(i -> "PREPARING".equals(i.getItemStatus()));
+            boolean anyReady     = itemDtos.stream().anyMatch(i -> "READY".equals(i.getItemStatus()));
+            boolean allDone      = !itemDtos.isEmpty() && itemDtos.stream()
+                    .allMatch(i -> "SERVED".equals(i.getItemStatus()) || "CANCELLED".equals(i.getItemStatus()));
+            String serviceStatus = allDone ? "SERVED" : anyDraft ? "HAS_DRAFT"
+                    : anyPreparing ? "PREPARING" : anyReady ? "READY" : "OPEN";
+            result.add(new QrOrderSummaryResponse(
+                    ro.getId(), ro.getOrderCode(), tableId, tableName, guestName,
+                    ro.getStatus().name(), serviceStatus, total, ro.getCreatedAt(), itemDtos.size()));
+        }
+
         List<QrOrder> orders = orderRepository.findAllByOrderByCreatedAtDesc();
-        if (orders.isEmpty()) return List.of();
+        if (orders.isEmpty()) return result;
 
         List<Long> orderIds = orders.stream().map(QrOrder::getOrderId).collect(Collectors.toList());
 
@@ -207,7 +247,7 @@ public class QrServiceImpl implements QrService {
                           r -> r.getFullName() != null ? r.getFullName() : "",
                           (a, b) -> a));
 
-        return orders.stream()
+        orders.stream()
                 .map(order -> {
                     List<QrOrderItem> items = itemsByOrderId.getOrDefault(order.getOrderId(), List.of());
                     double total = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
@@ -240,7 +280,8 @@ public class QrServiceImpl implements QrService {
                             items.size()
                     );
                 })
-                .collect(Collectors.toList());
+                .forEach(result::add);
+        return result;
     }
 
     @Override
@@ -297,30 +338,40 @@ public class QrServiceImpl implements QrService {
     @Override
     @Transactional
     public QrOrderResponse updateItemStatus(Long orderId, Long itemId, String targetStatus) {
-        QrOrder order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
-        if (!"OPEN".equals(order.getStatus())) {
-            throw new RuntimeException("Order is not open");
+        Optional<QrOrder> qrOrderOpt = orderRepository.findById(orderId);
+        if (qrOrderOpt.isPresent()) {
+            QrOrder order = qrOrderOpt.get();
+            if (!"OPEN".equals(order.getStatus())) {
+                throw new RuntimeException("Order is not open");
+            }
+            QrOrderItem item = orderItemRepository.findById(itemId)
+                    .filter(i -> i.getOrderId().equals(orderId))
+                    .orElseThrow(() -> new RuntimeException("Order item not found: " + itemId));
+            String current = item.getItemStatus();
+            boolean valid = ("CONFIRMED".equals(current) && "PREPARING".equals(targetStatus))
+                    || ("PREPARING".equals(current) && "READY".equals(targetStatus))
+                    || ("READY".equals(current) && "SERVED".equals(targetStatus));
+            if (!valid) {
+                throw new RuntimeException("Invalid item status transition: " + current + " → " + targetStatus);
+            }
+            item.setItemStatus(targetStatus);
+            orderItemRepository.save(item);
+            List<QrOrderItem> items = orderItemRepository.findByOrderId(orderId);
+            double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
+            return buildOrderResponse(order, items, totalAmount);
         }
 
-        QrOrderItem item = orderItemRepository.findById(itemId)
-                .filter(i -> i.getOrderId().equals(orderId))
-                .orElseThrow(() -> new RuntimeException("Order item not found: " + itemId));
-
-        String current = item.getItemStatus();
-        boolean valid = ("CONFIRMED".equals(current) && "PREPARING".equals(targetStatus))
-                || ("PREPARING".equals(current) && "READY".equals(targetStatus))
-                || ("READY".equals(current) && "SERVED".equals(targetStatus));
-        if (!valid) {
-            throw new RuntimeException("Invalid item status transition: " + current + " → " + targetStatus);
+        // Restaurant order item
+        com.swp391.api.modules.order.entity.OrderItemStatus status;
+        try {
+            status = com.swp391.api.modules.order.entity.OrderItemStatus.valueOf(targetStatus);
+        } catch (IllegalArgumentException e) {
+            throw new RuntimeException("Unknown status: " + targetStatus);
         }
-
-        item.setItemStatus(targetStatus);
-        orderItemRepository.save(item);
-
-        List<QrOrderItem> items = orderItemRepository.findByOrderId(orderId);
-        double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
-        return buildOrderResponse(order, items, totalAmount);
+        OrderResponse updated = orderService.updateItemStatus(orderId, itemId, status);
+        Long tableId = updated.tableId() != null ? updated.tableId()
+                : (updated.tableIds() != null && !updated.tableIds().isEmpty() ? updated.tableIds().get(0) : null);
+        return toQrResponse(updated, tableId);
     }
 
     @Override
@@ -485,6 +536,19 @@ public class QrServiceImpl implements QrService {
     }
 
     // ── Private helpers ──────────────────────────────────────────────────
+
+    private Long resolveTableId(RestaurantOrder ro) {
+        if (ro.getReservation() == null) return null;
+        if (ro.getReservation().getTableId() != null) return ro.getReservation().getTableId();
+        List<?> tables = ro.getReservation().getTables();
+        if (tables != null && !tables.isEmpty()) {
+            Object first = tables.get(0);
+            if (first instanceof com.swp391.api.modules.table.entity.RestaurantTable t) {
+                return t.getId();
+            }
+        }
+        return null;
+    }
 
     private QrOrder requireOpenOrder(Long orderId) {
         QrOrder order = orderRepository.findById(orderId)
