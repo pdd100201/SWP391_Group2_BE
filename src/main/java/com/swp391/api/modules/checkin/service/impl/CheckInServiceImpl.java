@@ -148,8 +148,7 @@ public class CheckInServiceImpl implements CheckInService {
      */
     private ActiveGuestResponse toActiveGuestResponse(Reservation reservation) {
         ActiveGuestResponse response = baseGuestResponse(reservation);
-        Optional<RestaurantOrder> orderOpt =
-                orderRepository.findByReservationReservationId(reservation.getReservationId());
+        Optional<RestaurantOrder> orderOpt = findDisplayOrderForReservation(reservation.getReservationId());
 
         orderOpt.ifPresent(order -> {
             response.setOrderId(order.getId());
@@ -158,6 +157,14 @@ public class CheckInServiceImpl implements CheckInService {
         });
 
         return response;
+    }
+
+    private Optional<RestaurantOrder> findDisplayOrderForReservation(Long reservationId) {
+        List<RestaurantOrder> orders = orderRepository.findAllByReservationReservationIdOrderByCreatedAtDesc(reservationId);
+        return orders.stream()
+                .filter(order -> order.getOrderCode() == null || !order.getOrderCode().startsWith("ORD-MIG-"))
+                .findFirst()
+                .or(() -> orders.stream().findFirst());
     }
 
     /**

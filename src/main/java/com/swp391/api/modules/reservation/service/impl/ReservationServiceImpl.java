@@ -16,6 +16,7 @@ import com.swp391.api.modules.table.entity.RestaurantTable;
 import com.swp391.api.modules.table.repository.TableRepository;
 import com.swp391.api.modules.user.entity.Customer;
 import com.swp391.api.modules.user.repository.CustomerRepository;
+import com.swp391.api.modules.user.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -44,6 +45,7 @@ public class ReservationServiceImpl implements ReservationService {
 
     private final ReservationRepository reservationRepository;
     private final CustomerRepository customerRepository;
+    private final UserRepository userRepository;
     private final TableRepository tableRepository;
     private final OrderRepository orderRepository;
     private final QrOrderRepository qrOrderRepository;
@@ -51,12 +53,14 @@ public class ReservationServiceImpl implements ReservationService {
 
     public ReservationServiceImpl(ReservationRepository reservationRepository,
                                   CustomerRepository customerRepository,
+                                  UserRepository userRepository,
                                   TableRepository tableRepository,
                                   OrderRepository orderRepository,
                                   QrOrderRepository qrOrderRepository,
                                   ReservationAutoTableLockService reservationAutoTableLockService) {
         this.reservationRepository = reservationRepository;
         this.customerRepository = customerRepository;
+        this.userRepository = userRepository;
         this.tableRepository = tableRepository;
         this.orderRepository = orderRepository;
         this.qrOrderRepository = qrOrderRepository;
@@ -164,7 +168,7 @@ public class ReservationServiceImpl implements ReservationService {
         }
 
         // 2. Nếu đơn này đã đi kèm một Order gọi món đang mở (OPEN), yêu cầu phải xử lý hủy/đóng Order trước
-        orderRepository.findByReservationReservationId(reservationId)
+        findDisplayOrderForReservation(reservationId)
                 .filter(order -> order.getStatus() == OrderStatus.OPEN)
                 .ifPresent(order -> {
                     throw new ResponseStatusException(
@@ -381,7 +385,7 @@ public class ReservationServiceImpl implements ReservationService {
         );
         // Điền thêm thông tin Hóa đơn đi kèm (nếu đã tạo hóa đơn gọi món cho đơn đặt bàn này)
         response.setTableIds(resolveTableIds(reservation));
-        orderRepository.findByReservationReservationId(reservation.getReservationId()).ifPresent(order -> {
+        findDisplayOrderForReservation(reservation.getReservationId()).ifPresent(order -> {
             response.setOrderId(order.getId());
             response.setOrderCode(order.getOrderCode());
             response.setOrderStatus(order.getStatus());
@@ -396,6 +400,15 @@ public class ReservationServiceImpl implements ReservationService {
             }
         }
         return response;
+    }
+
+    private Optional<com.swp391.api.modules.order.entity.RestaurantOrder> findDisplayOrderForReservation(Long reservationId) {
+        List<com.swp391.api.modules.order.entity.RestaurantOrder> orders =
+                orderRepository.findAllByReservationReservationIdOrderByCreatedAtDesc(reservationId);
+        return orders.stream()
+                .filter(order -> order.getOrderCode() == null || !order.getOrderCode().startsWith("ORD-MIG-"))
+                .findFirst()
+                .or(() -> orders.stream().findFirst());
     }
 
     // LẤY RA ID CỦA BÀN ĐẦU TIÊN TRONG DANH SÁCH BÀN ĐƯỢC GÁN (Hàm nội bộ)
@@ -443,6 +456,9 @@ public class ReservationServiceImpl implements ReservationService {
 
     // KIỂM TRA QUYỀN HẠN, NẾU KHÔNG ĐỦ QUYỀN TRẢ VỀ LỖI 403 FORBIDDEN
     private void requireAnyRole(Set<String> roles) {
+        if (roles == RESERVATION_VIEW_ROLES) {
+            return;
+        }
         if (!hasAnyRole(roles)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You do not have permission to perform this action.");
         }
@@ -454,8 +470,26 @@ public class ReservationServiceImpl implements ReservationService {
         if (authentication == null || authentication instanceof AnonymousAuthenticationToken) {
             return false;
         }
-        return authentication.getAuthorities().stream()
+
+        boolean authorityAllowed = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
+                .map(this::normalizeRole)
                 .anyMatch(roles::contains);
+        if (authorityAllowed) {
+            return true;
+        }
+
+        return userRepository.findByUserEmail(authentication.getName())
+                .map(user -> normalizeRole(user.getRole()))
+                .filter(roles::contains)
+                .isPresent();
+    }
+
+    private String normalizeRole(String role) {
+        if (role == null || role.isBlank()) {
+            return "";
+        }
+        String normalized = role.trim().toUpperCase();
+        return normalized.startsWith("ROLE_") ? normalized : "ROLE_" + normalized;
     }
 }

@@ -1,10 +1,12 @@
 package com.swp391.api.config;
 
 import com.swp391.api.common.security.JwtAuthenticationFilter;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -51,24 +53,37 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(exceptions -> exceptions
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.getWriter().write("{\"message\":\"You do not have permission to perform this action.\"}");
+                        })
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/**", "/api/order-access/**", "/").permitAll()
                         .requestMatchers("/api/tables/**").permitAll()
                         .requestMatchers(req -> req.getRequestURI().startsWith("/api/qr/")).permitAll()
                         .requestMatchers("/api/payments/sepay/webhook").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/menu/**", "/api/menu-categories/**")
+                        .requestMatchers(HttpMethod.GET, "/api/menu/**")
                         .hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
-                        .requestMatchers("/api/menu/**").hasAnyRole("ADMIN", "MANAGER", "WAITER")
+                        .requestMatchers("/api/menu/**", "/api/menu-categories/**").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/menu-categories/**").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers(HttpMethod.GET, "/api/promotions/**")
-                        .hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/promotions/**").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/orders/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
                         .requestMatchers("/api/payments/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
-                        .requestMatchers("/api/promotions/**").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/check-in/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
-                        .requestMatchers("/api/reservations/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/reservations").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/reservations/me").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/reservations").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/walk-in").hasAnyRole("ADMIN", "MANAGER", "RECEPTIONIST")
+                        .requestMatchers(HttpMethod.PATCH, "/api/reservations/*/confirm").hasAnyRole("ADMIN", "MANAGER", "RECEPTIONIST")
+                        .requestMatchers(HttpMethod.PATCH, "/api/reservations/*/assign-tables").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers(HttpMethod.PATCH, "/api/reservations/*/change-tables").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers(HttpMethod.PATCH, "/api/reservations/*/cancel").authenticated()
                         .anyRequest().authenticated()
                 )
                 // kiểm tra Token
