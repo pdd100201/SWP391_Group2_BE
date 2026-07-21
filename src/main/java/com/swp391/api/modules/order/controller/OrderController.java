@@ -112,6 +112,11 @@ public class OrderController {
         return ResponseEntity.ok(orderService.close(orderId));
     }
 
+    @PatchMapping("/reservations/{reservationId}/complete")
+    public ResponseEntity<OrderGroupResponse> completeReservation(@PathVariable Long reservationId) {
+        return ResponseEntity.ok(orderService.completeReservation(reservationId));
+    }
+
     @PatchMapping("/{orderId}/promotion")
     public ResponseEntity<OrderResponse> applyPromotion(
             @PathVariable Long orderId,

@@ -14,6 +14,16 @@ public interface PaymentService {
 
     PaymentResponse createCashPayment(Long orderId);
 
+    void createReservationSepayPayment(Long reservationId);
+
+    void createReservationCashPayment(Long reservationId);
+
+    void cancelReservationPayment(Long reservationId);
+
+    void applyReservationPromotion(Long reservationId, String code);
+
+    void removeReservationPromotion(Long reservationId);
+
     PaymentResponse getLatestPayment(Long orderId);
 
     Map<String, Boolean> handleSepayWebhook(SepayWebhookRequest request);

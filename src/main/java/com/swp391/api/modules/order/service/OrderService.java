@@ -245,7 +245,13 @@ public class OrderService {
     }
 
     public BillResponse toBillResponse(Bill bill) {
-        Payment payment = paymentRepository.findFirstByBill_IdOrderByCreatedAtDesc(bill.getId()).orElse(null);
+        Payment payment = switch (bill.getStatus()) {
+            case PENDING -> paymentRepository.findFirstByBill_IdAndStatusOrderByCreatedAtDesc(
+                    bill.getId(), PaymentStatus.PENDING).orElse(null);
+            case PAID -> paymentRepository.findFirstByBill_IdAndStatusOrderByCreatedAtDesc(
+                    bill.getId(), PaymentStatus.PAID).orElse(null);
+            default -> null;
+        };
         Promotion promotion = bill.getPromotion();
         return new BillResponse(
                 bill.getId(),
@@ -590,6 +596,44 @@ public class OrderService {
         order.getReservation().setStatus(ReservationStatus.COMPLETED);
         updateAssignedTableStatus(order.getReservation(), RestaurantTable.TableStatus.CLEANING);
         return toResponse(orderRepository.save(order));
+    }
+
+    public OrderGroupResponse completeReservation(Long reservationId) {
+        List<RestaurantOrder> orders = orderRepository.findAllByReservationReservationIdOrderByCreatedAtDesc(reservationId)
+                .stream()
+                .filter(order -> order.getStatus() != OrderStatus.CANCELLED)
+                .toList();
+        if (orders.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Order group not found");
+        }
+        Bill bill = billRepository.findByReservation_ReservationId(reservationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Bill must be paid before completing reservation"));
+        if (bill.getStatus() != com.swp391.api.modules.payment.entity.BillStatus.PAID) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Bill must be paid before completing reservation");
+        }
+        boolean hasServedItem = orders.stream()
+                .flatMap(order -> order.getItems().stream())
+                .anyMatch(item -> item.getStatus() == OrderItemStatus.SERVED);
+        boolean hasUnfinishedItem = orders.stream()
+                .flatMap(order -> order.getItems().stream())
+                .anyMatch(item -> item.getStatus() != OrderItemStatus.SERVED
+                        && item.getStatus() != OrderItemStatus.CANCELLED);
+        if (!hasServedItem || hasUnfinishedItem) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "All non-cancelled items must be served before completing reservation");
+        }
+
+        LocalDateTime closedAt = LocalDateTime.now();
+        orders.forEach(order -> {
+            if (order.getStatus() == OrderStatus.OPEN) {
+                order.setStatus(OrderStatus.CLOSED);
+                order.setClosedAt(closedAt);
+            }
+        });
+        Reservation reservation = orders.get(0).getReservation();
+        reservation.setStatus(ReservationStatus.COMPLETED);
+        updateAssignedTableStatus(reservation, RestaurantTable.TableStatus.CLEANING);
+        orderRepository.saveAll(orders);
+        return getGroup(reservationId);
     }
 
     public OrderResponse applyPromotion(Long orderId, String code) {

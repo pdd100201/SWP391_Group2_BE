@@ -1,9 +1,11 @@
 package com.swp391.api.modules.payment.controller;
 
 import com.swp391.api.modules.order.service.OrderService;
+import com.swp391.api.modules.payment.dto.ApplyPromotionRequest;
 import com.swp391.api.modules.payment.dto.BillResponse;
 import com.swp391.api.modules.payment.dto.PaymentResponse;
 import com.swp391.api.modules.payment.dto.SepayWebhookRequest;
+import jakarta.validation.Valid;
 import com.swp391.api.modules.payment.entity.Bill;
 import com.swp391.api.modules.payment.entity.BillStatus;
 import com.swp391.api.modules.payment.repository.BillRepository;
@@ -14,7 +16,9 @@ import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -63,6 +67,38 @@ public class PaymentController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Bill not found"));
     }
 
+    @PatchMapping("/bills/reservations/{reservationId}/promotion")
+    public ResponseEntity<BillResponse> applyReservationPromotion(
+            @PathVariable Long reservationId,
+            @Valid @RequestBody ApplyPromotionRequest request) {
+        paymentService.applyReservationPromotion(reservationId, request.getCode());
+        return ResponseEntity.ok(getReservationBillBody(reservationId));
+    }
+
+    @DeleteMapping("/bills/reservations/{reservationId}/promotion")
+    public ResponseEntity<BillResponse> removeReservationPromotion(@PathVariable Long reservationId) {
+        paymentService.removeReservationPromotion(reservationId);
+        return ResponseEntity.ok(getReservationBillBody(reservationId));
+    }
+
+    @PostMapping("/bills/reservations/{reservationId}/sepay")
+    public ResponseEntity<BillResponse> createReservationSepayPayment(@PathVariable Long reservationId) {
+        paymentService.createReservationSepayPayment(reservationId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(getReservationBillBody(reservationId));
+    }
+
+    @PostMapping("/bills/reservations/{reservationId}/cash")
+    public ResponseEntity<BillResponse> createReservationCashPayment(@PathVariable Long reservationId) {
+        paymentService.createReservationCashPayment(reservationId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(getReservationBillBody(reservationId));
+    }
+
+    @PostMapping("/bills/reservations/{reservationId}/cancel-payment")
+    public ResponseEntity<BillResponse> cancelReservationPayment(@PathVariable Long reservationId) {
+        paymentService.cancelReservationPayment(reservationId);
+        return ResponseEntity.ok(getReservationBillBody(reservationId));
+    }
+
     @GetMapping("/orders/{orderId}/latest")
     public ResponseEntity<PaymentResponse> getLatestPayment(@PathVariable Long orderId) {
         return ResponseEntity.ok(paymentService.getLatestPayment(orderId));
@@ -74,6 +110,12 @@ public class PaymentController {
             @RequestBody SepayWebhookRequest request) {
         validateSepayAuthorization(authorization);
         return ResponseEntity.ok(paymentService.handleSepayWebhook(request));
+    }
+
+    private BillResponse getReservationBillBody(Long reservationId) {
+        return billRepository.findByReservation_ReservationId(reservationId)
+                .map(orderService::toBillResponse)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Bill not found"));
     }
 
     private void validateSepayAuthorization(String authorization) {
