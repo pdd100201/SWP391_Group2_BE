@@ -4,6 +4,13 @@ import com.swp391.api.modules.report.dto.DashboardStatsResponse;
 import com.swp391.api.modules.report.dto.GroupByMode;
 import com.swp391.api.modules.report.dto.RevenueStatsResponse;
 import com.swp391.api.modules.report.dto.RevenueTimeStatsDto;
+import com.swp391.api.modules.report.dto.PaymentTransactionDto;
+import com.swp391.api.modules.report.dto.OrderItemDto;
+import com.swp391.api.modules.report.dto.TopSellingItemDto;
+import com.swp391.api.modules.report.dto.PaymentMethodBreakdownDto;
+import com.swp391.api.modules.order.entity.OrderItem;
+import com.swp391.api.modules.table.entity.RestaurantTable;
+import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.report.service.ReportService;
 import com.swp391.api.modules.payment.entity.Payment;
 import com.swp391.api.modules.payment.entity.PaymentStatus;
@@ -13,6 +20,7 @@ import com.swp391.api.modules.reservation.repository.ReservationRepository;
 import com.swp391.api.modules.menu.repository.MenuItemRepository;
 import com.swp391.api.modules.user.repository.UserRepository;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -74,14 +82,34 @@ public class ReportServiceImpl implements ReportService {
         BigDecimal totalRevenuePeriod = calculateTotalRevenue(payments);
         long transactionCountPeriod = payments.size();
 
-        // 5. Gom nhóm các khoản thanh toán theo mốc thời gian (Ngày/Tháng/Năm)
-        Map<String, List<Payment>> groupedMap = groupPaymentsByTime(payments, mode);
+        // 5. Gom nhóm các khoản thanh toán theo mốc thời gian (Giờ/Ngày/Tháng/Năm)
+        Map<String, List<Payment>> groupedMap = groupPaymentsByTime(payments, mode, startDate, endDate);
 
         // 6. Lấp đầy các mốc thời gian không có giao dịch với doanh thu bằng 0
         List<RevenueTimeStatsDto> chartData = fillZeroRevenueDays(startDate, endDate, mode, groupedMap);
 
-        // 7. Tạo phản hồi dữ liệu tối giản
-        return new RevenueStatsResponse(totalRevenuePeriod, transactionCountPeriod, chartData);
+        // 7. Chi tiết các giao dịch trong kỳ
+        List<PaymentTransactionDto> transactions = mapToTransactionDtos(payments);
+
+        // 8. Thống kê món bán chạy nhất
+        List<TopSellingItemDto> topSellingItems = calculateTopSellingItems(payments);
+
+        // 9. Thống kê phương thức thanh toán
+        List<PaymentMethodBreakdownDto> paymentMethods = calculatePaymentMethodsBreakdown(payments);
+
+        // 10. Tính toán AOV
+        BigDecimal averageOrderValue = calculateAverageOrderValue(totalRevenuePeriod, transactionCountPeriod);
+
+        // 11. Tạo phản hồi dữ liệu chi tiết
+        return new RevenueStatsResponse(
+            totalRevenuePeriod, 
+            transactionCountPeriod, 
+            chartData, 
+            transactions, 
+            topSellingItems, 
+            paymentMethods, 
+            averageOrderValue
+        );
     }
 
     /**
@@ -127,7 +155,12 @@ public class ReportServiceImpl implements ReportService {
         }
 
         // Giới hạn khoảng lọc tối đa để bảo vệ hiệu năng ứng dụng
-        if (mode == GroupByMode.DAY) {
+        if (mode == GroupByMode.HOUR) {
+            long daysBetween = ChronoUnit.DAYS.between(startDate, endDate);
+            if (daysBetween > 7) {
+                throw new IllegalArgumentException("Hourly view allows a maximum filter range of 7 days.");
+            }
+        } else if (mode == GroupByMode.DAY) {
             long daysBetween = ChronoUnit.DAYS.between(startDate, endDate);
             if (daysBetween > 366) {
                 throw new IllegalArgumentException("Daily view allows a maximum filter range of 366 days.");
@@ -165,7 +198,7 @@ public class ReportServiceImpl implements ReportService {
      * Đầu vào: Danh sách payments, chế độ nhóm mode.
      * Kết quả trả về: Map với khóa là chuỗi nhãn thời gian (ví dụ: "2026-07-17") và giá trị là danh sách payments của mốc đó.
      */
-    private Map<String, List<Payment>> groupPaymentsByTime(List<Payment> payments, GroupByMode mode) {
+    private Map<String, List<Payment>> groupPaymentsByTime(List<Payment> payments, GroupByMode mode, LocalDate startDate, LocalDate endDate) {
         Map<String, List<Payment>> map = new HashMap<>();
         for (Payment payment : payments) {
             LocalDateTime paidTime = payment.getPaidAt();
@@ -174,7 +207,13 @@ public class ReportServiceImpl implements ReportService {
             }
 
             String label = "";
-            if (mode == GroupByMode.DAY) {
+            if (mode == GroupByMode.HOUR) {
+                if (startDate.equals(endDate)) {
+                    label = String.format("%02d:00", paidTime.getHour()); // Định dạng: "HH:00"
+                } else {
+                    label = String.format("%s %02d:00", paidTime.toLocalDate().toString(), paidTime.getHour()); // Định dạng: "YYYY-MM-DD HH:00"
+                }
+            } else if (mode == GroupByMode.DAY) {
                 label = paidTime.toLocalDate().toString(); // Định dạng: "YYYY-MM-DD"
             } else if (mode == GroupByMode.MONTH) {
                 label = YearMonth.from(paidTime).toString(); // Định dạng: "YYYY-MM"
@@ -200,7 +239,22 @@ public class ReportServiceImpl implements ReportService {
         
         List<RevenueTimeStatsDto> chartData = new ArrayList<>();
 
-        if (mode == GroupByMode.DAY) {
+        if (mode == GroupByMode.HOUR) {
+            if (startDate.equals(endDate)) {
+                for (int h = 0; h < 24; h++) {
+                    String label = String.format("%02d:00", h);
+                    chartData.add(buildTimeStatsDto(label, groupedMap.get(label)));
+                }
+            } else {
+                LocalDateTime current = startDate.atStartOfDay();
+                LocalDateTime end = endDate.plusDays(1).atStartOfDay();
+                while (current.isBefore(end)) {
+                    String label = String.format("%s %02d:00", current.toLocalDate().toString(), current.getHour());
+                    chartData.add(buildTimeStatsDto(label, groupedMap.get(label)));
+                    current = current.plusHours(1);
+                }
+            }
+        } else if (mode == GroupByMode.DAY) {
             LocalDate current = startDate;
             while (!current.isAfter(endDate)) {
                 String label = current.toString();
@@ -245,5 +299,89 @@ public class ReportServiceImpl implements ReportService {
             }
         }
         return new RevenueTimeStatsDto(label, sum, (long) periodPayments.size());
+    }
+
+    private List<PaymentTransactionDto> mapToTransactionDtos(List<Payment> payments) {
+        List<PaymentTransactionDto> dtos = new ArrayList<>();
+        for (Payment payment : payments) {
+            PaymentTransactionDto dto = new PaymentTransactionDto();
+            dto.setId(payment.getId());
+            dto.setPaymentCode(payment.getPaymentCode());
+            dto.setAmount(payment.getAmount());
+            dto.setProvider(payment.getProvider());
+            dto.setPaidAt(payment.getPaidAt());
+
+            if (payment.getOrder() != null) {
+                dto.setOrderId(payment.getOrder().getId());
+                dto.setOrderCode(payment.getOrder().getOrderCode());
+                if (payment.getOrder().getWaiter() != null) {
+                    dto.setWaiterName(payment.getOrder().getWaiter().getFullName());
+                }
+                if (payment.getOrder().getReservation() != null) {
+                    Reservation reservation = payment.getOrder().getReservation();
+                    dto.setGuestName(reservation.getFullName());
+                    if (reservation.getTables() != null && !reservation.getTables().isEmpty()) {
+                        List<String> tableList = new ArrayList<>();
+                        for (RestaurantTable t : reservation.getTables()) {
+                            tableList.add(t.getTableName() != null && !t.getTableName().isEmpty() ? t.getTableName() : t.getTableNumber());
+                        }
+                        dto.setTableNames(String.join(", ", tableList));
+                    }
+                }
+                if (payment.getOrder().getItems() != null) {
+                    List<OrderItemDto> itemDtos = new ArrayList<>();
+                    for (OrderItem item : payment.getOrder().getItems()) {
+                        itemDtos.add(new OrderItemDto(
+                            item.getId(),
+                            item.getMenuItemName(),
+                            item.getUnitPrice(),
+                            item.getSubtotal(),
+                            item.getQuantity(),
+                            item.getNote()
+                        ));
+                    }
+                    dto.setItems(itemDtos);
+                }
+            }
+            dtos.add(dto);
+        }
+        return dtos;
+    }
+
+    private List<TopSellingItemDto> calculateTopSellingItems(List<Payment> payments) {
+        Map<String, TopSellingItemDto> map = new HashMap<>();
+        for (Payment payment : payments) {
+            if (payment.getOrder() != null && payment.getOrder().getItems() != null) {
+                for (OrderItem item : payment.getOrder().getItems()) {
+                    String name = item.getMenuItemName();
+                    TopSellingItemDto dto = map.computeIfAbsent(name, k -> new TopSellingItemDto(name, 0L, BigDecimal.ZERO));
+                    dto.setQuantity(dto.getQuantity() + item.getQuantity());
+                    BigDecimal itemRevenue = item.getSubtotal() != null ? item.getSubtotal() : BigDecimal.ZERO;
+                    dto.setRevenue(dto.getRevenue().add(itemRevenue));
+                }
+            }
+        }
+        List<TopSellingItemDto> list = new ArrayList<>(map.values());
+        list.sort((a, b) -> Long.compare(b.getQuantity(), a.getQuantity()));
+        return list.size() > 10 ? list.subList(0, 10) : list;
+    }
+
+    private List<PaymentMethodBreakdownDto> calculatePaymentMethodsBreakdown(List<Payment> payments) {
+        Map<String, PaymentMethodBreakdownDto> map = new HashMap<>();
+        for (Payment payment : payments) {
+            String provider = payment.getProvider() != null ? payment.getProvider().toUpperCase() : "UNKNOWN";
+            BigDecimal amount = payment.getAmount() != null ? payment.getAmount() : BigDecimal.ZERO;
+            PaymentMethodBreakdownDto dto = map.computeIfAbsent(provider, k -> new PaymentMethodBreakdownDto(provider, 0L, BigDecimal.ZERO));
+            dto.setCount(dto.getCount() + 1);
+            dto.setTotalAmount(dto.getTotalAmount().add(amount));
+        }
+        return new ArrayList<>(map.values());
+    }
+
+    private BigDecimal calculateAverageOrderValue(BigDecimal totalRevenue, long transactionCount) {
+        if (transactionCount == 0) {
+            return BigDecimal.ZERO;
+        }
+        return totalRevenue.divide(BigDecimal.valueOf(transactionCount), 2, RoundingMode.HALF_UP);
     }
 }

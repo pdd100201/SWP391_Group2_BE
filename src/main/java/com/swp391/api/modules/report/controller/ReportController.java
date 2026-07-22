@@ -72,7 +72,7 @@ public class ReportController {
             try {
                 mode = GroupByMode.valueOf(groupBy.toUpperCase());
             } catch (IllegalArgumentException e) {
-                return ResponseEntity.badRequest().body(Map.of("message", "Group by mode 'groupBy' only accepts: day, month or year"));
+                return ResponseEntity.badRequest().body(Map.of("message", "Group by mode 'groupBy' only accepts: hour, day, month or year"));
             }
 
             // Gọi service xử lý nghiệp vụ
