@@ -328,9 +328,8 @@ public class OrderService {
     private boolean isActiveGroup(OrderGroupResponse group) {
         if (group.reservationStatus() != ReservationStatus.ARRIVED) return false;
         boolean serviceInProgress = group.orders().stream().anyMatch(this::isActiveOrder);
-        boolean paymentOutstanding = group.bill() != null
-                && group.bill().total().compareTo(BigDecimal.ZERO) > 0
-                && !"PAID".equals(group.bill().status());
+        boolean paymentOutstanding = group.total().compareTo(BigDecimal.ZERO) > 0
+                && (group.bill() == null || !"PAID".equals(group.bill().status()));
         return serviceInProgress || paymentOutstanding;
     }
 
