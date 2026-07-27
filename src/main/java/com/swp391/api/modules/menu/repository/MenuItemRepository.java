@@ -5,7 +5,11 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
 
-// Các truy vấn lưu trữ cho quản lý menu và kiểm tra trùng tên món.
+/**
+ * Tầng truy cập dữ liệu của món ăn.
+ * JpaRepository cung cấp sẵn save, findById, findAll và count mà không cần tự viết SQL.
+ */
 public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
+    // Spring Data tự tạo truy vấn tìm tên món không phân biệt chữ hoa/chữ thường.
     Optional<MenuItem> findByNameIgnoreCase(String name);
 }

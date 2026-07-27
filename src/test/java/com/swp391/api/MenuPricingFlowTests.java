@@ -12,15 +12,21 @@ import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * Test tích hợp tầng service và database để xác nhận luồng tạo món lưu đúng giá bán trực tiếp.
+ * @Transactional giúp dữ liệu test được rollback sau khi test kết thúc.
+ */
 @SpringBootTest
 @Transactional
 class MenuPricingFlowTests {
 
+    // Spring truyền implementation thật của MenuService để test đúng luồng ứng dụng.
     @Autowired
     private MenuService menuService;
 
     @Test
     void creatingMenuItemUsesDirectPrice() {
+        // Tên kèm nanoTime tránh trùng với món đã có trong dữ liệu khởi tạo.
         MenuItemRequest request = new MenuItemRequest();
         request.setName("Direct Price Test Dish " + System.nanoTime());
         request.setCategory("Main Course");
@@ -30,6 +36,7 @@ class MenuPricingFlowTests {
 
         MenuItemResponse response = menuService.create(request);
 
+        // Món mới phải giữ nguyên giá frontend gửi và mặc định ở trạng thái đang phục vụ.
         assertEquals(BigDecimal.valueOf(99000), response.getPrice());
         assertEquals("AVAILABLE", response.getAvailability());
     }

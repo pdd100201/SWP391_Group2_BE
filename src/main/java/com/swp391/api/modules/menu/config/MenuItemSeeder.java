@@ -9,6 +9,10 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+/**
+ * Tạo một số món mẫu khi ứng dụng khởi động lần đầu để hệ thống có dữ liệu trình diễn.
+ * Seeder không tham gia luồng người dùng nhấn nút tạo món trên giao diện.
+ */
 @Component
 @Order(4)
 public class MenuItemSeeder implements CommandLineRunner {
@@ -22,8 +26,11 @@ public class MenuItemSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        // Không seed lặp dữ liệu. Với database cũ chỉ bổ sung giá còn thiếu rồi dừng.
+        // Nếu bảng đã có món thì không chèn bộ dữ liệu mẫu lần nữa.
+        // Với database cũ, chỉ bổ sung giá còn thiếu rồi kết thúc.
         if (menuItemRepository.count() > 0) { backfillMissingPrices(); return; }
+
+        // Database trống: tạo danh sách món mẫu bằng hàm dish để tránh lặp code gán field.
         menuItemRepository.saveAll(List.of(
                 dish("Fresh Garden Salad", "Appetizer", "Fresh lettuce, tomatoes and onion with a light seasoning.", "https://res.cloudinary.com/demo/image/upload/sample.jpg", 59000),
                 dish("Creamy Tomato Soup", "Appetizer", "Slow-cooked tomato soup finished with milk and butter.", "https://res.cloudinary.com/demo/image/upload/cld-sample-1.jpg", 69000),
@@ -35,6 +42,7 @@ public class MenuItemSeeder implements CommandLineRunner {
     }
 
     private void backfillMissingPrices() {
+        // Tìm những bản ghi cũ chưa có giá hợp lệ và khôi phục giá mặc định theo tên món.
         List<MenuItem> items = menuItemRepository.findAll().stream()
                 .filter(item -> item.getPrice() == null || item.getPrice().compareTo(BigDecimal.ZERO) <= 0).toList();
         for (MenuItem item : items) { BigDecimal price = defaultPrice(item.getName()); if (price != null) item.setPrice(price); }
@@ -42,7 +50,7 @@ public class MenuItemSeeder implements CommandLineRunner {
     }
 
     private MenuItem dish(String name, String category, String description, String imageUrl, long price) {
-        // Seeder vẫn phải dùng category đã tồn tại để thỏa quan hệ khóa ngoại của MenuItem.
+        // Tạo một entity món mẫu. Danh mục phải tồn tại trước để thỏa khóa ngoại của MenuItem.
         MenuItem item = new MenuItem();
         item.setName(name);
         item.setMenuCategory(categoryRepository.findByNameIgnoreCase(category)
@@ -52,6 +60,7 @@ public class MenuItemSeeder implements CommandLineRunner {
     }
 
     private BigDecimal defaultPrice(String name) {
+        // Bảng ánh xạ giá chỉ phục vụ việc sửa dữ liệu mẫu cũ, không phải cách tính giá bán thực tế.
         return switch (name) {
             case "Fresh Garden Salad" -> BigDecimal.valueOf(59000); case "Creamy Tomato Soup" -> BigDecimal.valueOf(69000);
             case "Grilled Chicken with Jasmine Rice" -> BigDecimal.valueOf(149000); case "Garlic Butter Salmon" -> BigDecimal.valueOf(219000);

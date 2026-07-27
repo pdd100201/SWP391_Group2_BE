@@ -13,12 +13,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+/**
+ * Kiểm tra file ảnh, upload lên Cloudinary và xác minh URL Cloudinary.
+ * API key/secret chỉ tồn tại ở backend nên frontend không thể nhìn thấy thông tin bí mật.
+ */
 @Service
 public class CloudinaryImageService {
-    // Giới hạn được kiểm tra tại backend vì kiểm tra accept ở trình duyệt có thể bị bỏ qua.
+    // Backend bắt buộc kiểm tra lại vì thuộc tính accept của trình duyệt có thể bị bỏ qua.
     private static final long MAX_SIZE = 10 * 1024 * 1024;
+
+    // Chỉ bốn MIME type ảnh này được hệ thống hỗ trợ.
     private static final Set<String> ALLOWED_TYPES = Set.of("image/jpeg", "image/png", "image/webp", "image/gif");
+
+    // Client Cloudinary dùng để gửi file đến dịch vụ lưu trữ ảnh.
     private final Cloudinary cloudinary;
+
+    // Thư mục gốc giúp gom toàn bộ ảnh của dự án, mặc định là golden-spoon.
     private final String rootFolder;
 
     public CloudinaryImageService(Cloudinary cloudinary, @Value("${cloudinary.root-folder:golden-spoon}") String rootFolder) {
@@ -27,14 +37,15 @@ public class CloudinaryImageService {
     }
 
     public ImageUploadResponse upload(MultipartFile file, String folder) {
+        // Từ chối file sai trước khi phát sinh request ra dịch vụ Cloudinary.
         validate(file);
 
-        // Chỉ cho phép ký tự an toàn trong tên thư mục để client không thể tạo đường dẫn tùy ý.
+        // Loại ký tự lạ khỏi tên thư mục để client không thể tạo đường dẫn tùy ý.
         String safeFolder = folder == null ? "general" : folder.replaceAll("[^a-zA-Z0-9_-]", "");
         if (safeFolder.isBlank()) safeFolder = "general";
         try {
-            // unique_filename tránh ghi đè ảnh cũ khi hai file có cùng tên.
-            // URL HTTPS và public_id từ kết quả upload sẽ được trả về cho frontend.
+            // unique_filename tránh ghi đè ảnh cũ khi hai file trùng tên.
+            // overwrite=false bảo vệ ảnh đã tồn tại; secure_url là URL HTTPS trả cho frontend.
             Map<?, ?> result = cloudinary.uploader().upload(file.getBytes(), ObjectUtils.asMap(
                     "folder", rootFolder + "/" + safeFolder, "resource_type", "image",
                     "use_filename", true, "unique_filename", true, "overwrite", false));
@@ -42,12 +53,13 @@ public class CloudinaryImageService {
                     number(result.get("bytes")), (int) number(result.get("width")),
                     (int) number(result.get("height")), String.valueOf(result.get("format")));
         } catch (IOException | RuntimeException exception) {
+            // 502 cho biết backend hoạt động nhưng dịch vụ Cloudinary hoặc đường truyền upload gặp lỗi.
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not upload image to Cloudinary", exception);
         }
     }
 
     private void validate(MultipartFile file) {
-        // Không tin filename/extension hoặc MIME do client gửi; chữ ký nhị phân cũng phải đúng định dạng khai báo.
+        // Không tin tên/đuôi file hoặc MIME do client khai báo; chữ ký nhị phân cũng phải đúng định dạng.
         if (file == null || file.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Image file is required");
         if (file.getSize() > MAX_SIZE) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Image must not exceed 10 MB");
         if (!ALLOWED_TYPES.contains(file.getContentType()))
@@ -56,7 +68,10 @@ public class CloudinaryImageService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "File content does not match its image type");
     }
 
-    /** Chỉ chấp nhận URL phân phối ảnh HTTPS chính thức của Cloudinary. */
+    /**
+     * Chỉ chấp nhận URL HTTPS chính thức của Cloudinary và đúng đường dẫn dành cho ảnh upload.
+     * Hàm này được MenuServiceImpl gọi lại khi lưu món để ngăn client tự gửi URL giả.
+     */
     public boolean isCloudinaryImageUrl(String value) {
         if (value == null || value.isBlank()) return false;
         try {
@@ -71,6 +86,7 @@ public class CloudinaryImageService {
     }
 
     private boolean hasValidSignature(MultipartFile file, String contentType) {
+        // Đọc tối đa 12 byte đầu file để nhận dạng chữ ký chuẩn của JPEG, PNG, GIF hoặc WebP.
         byte[] header = new byte[12];
         try (InputStream input = file.getInputStream()) {
             int length = input.read(header);
@@ -93,6 +109,6 @@ public class CloudinaryImageService {
 
     private int unsigned(byte value) { return value & 0xFF; }
 
-    // Cloudinary trả metadata dưới dạng Map nên cần chuyển Number một cách an toàn.
+    // Cloudinary trả metadata dưới dạng Map nên cần chuyển Object sang số theo cách an toàn.
     private long number(Object value) { return value instanceof Number number ? number.longValue() : 0; }
 }

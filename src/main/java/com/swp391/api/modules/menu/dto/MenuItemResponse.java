@@ -3,8 +3,12 @@ package com.swp391.api.modules.menu.dto;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-// Dữ liệu menu đầy đủ trả về giao diện, gồm giá vốn công thức, giá gợi ý và tồn kho khả dụng.
+/**
+ * Dữ liệu món ăn được backend trả về cho frontend.
+ * DTO này tách giao diện API khỏi entity database và bổ sung trạng thái availability dễ hiển thị.
+ */
 public class MenuItemResponse {
+    // Thông tin nhận diện và nội dung chính của món.
     private Long id;
     private String name;
     private String category;
@@ -12,11 +16,16 @@ public class MenuItemResponse {
     private String description;
     private String imageUrl;
     private BigDecimal price;
+
+    // isActive là trạng thái lưu trong database; availability là nhãn tính toán cho giao diện.
     private Boolean isActive;
     private String availability;
+
+    // Thời điểm tạo và cập nhật được JPA Auditing tự động ghi nhận.
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    // Getter/setter cho phép Spring chuyển đối tượng này thành JSON response.
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getName() { return name; }

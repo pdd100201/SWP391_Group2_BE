@@ -10,10 +10,14 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Tạo các danh mục mặc định khi ứng dụng khởi động và bổ sung liên kết danh mục
+ * cho những món thuộc database cũ. Đây là dữ liệu khởi tạo, không phải API người dùng gọi.
+ */
 @Component
 @Order(3)
-// Bootstraps default categories and backfills category links for existing menu items.
 public class MenuCategorySeeder implements CommandLineRunner {
+    // Danh sách chuẩn được tạo nếu database chưa có danh mục tương ứng.
     private static final List<String> DEFAULT_CATEGORIES = List.of(
             "Appetizer", "Main Course", "Side Dish", "Dessert", "Beverage");
 
@@ -28,6 +32,7 @@ public class MenuCategorySeeder implements CommandLineRunner {
     @Override
     @Transactional
     public void run(String... args) {
+        // Chỉ tạo danh mục còn thiếu, vì vậy khởi động lại ứng dụng không làm trùng dữ liệu.
         for (String name : DEFAULT_CATEGORIES) {
             categoryRepository.findByNameIgnoreCase(name).orElseGet(() -> {
                 MenuCategory category = new MenuCategory();
@@ -38,11 +43,15 @@ public class MenuCategorySeeder implements CommandLineRunner {
             });
         }
 
+        // Dữ liệu cũ có thể mới lưu tên category mà chưa có khóa ngoại menu_category_id.
+        // Vòng lặp này gắn lại entity danh mục phù hợp cho các bản ghi đó.
         for (MenuItem item : menuItemRepository.findAll()) {
             if (item.getMenuCategory() != null) continue;
             String target = "Appetizer".equalsIgnoreCase(item.getCategory())
                     ? "Appetizer"
                     : "Main Course";
+
+            // MenuItem đang được quản lý trong transaction nên JPA tự ghi thay đổi khi commit.
             item.setMenuCategory(categoryRepository.findByNameIgnoreCase(target).orElseThrow());
         }
     }
