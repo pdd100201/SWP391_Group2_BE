@@ -19,10 +19,27 @@ public class PromotionSchemaCompatibility implements CommandLineRunner {
         if (!columnExists("promotions", "name")) {
             return;
         }
+
+        // These columns belong to the old promotion model. The current entity
+        // writes to name, type, value and is_active, so legacy columns must not
+        // reject new rows when they are still present in an existing database.
+        makeNullableIfPresent("promotion_name", "VARCHAR(100)");
+        makeNullableIfPresent("discount_type", "ENUM('FIXED','PERCENT')");
+        makeNullableIfPresent("discount_value", "DECIMAL(12,2)");
+        makeNullableIfPresent("status", "ENUM('ACTIVE','INACTIVE')");
+
         jdbcTemplate.execute("ALTER TABLE promotions MODIFY COLUMN name VARCHAR(120) NULL");
 
         if (columnExists("promotions", "value")) {
             jdbcTemplate.execute("ALTER TABLE promotions MODIFY COLUMN value DECIMAL(19,2) NULL");
+        }
+    }
+
+    private void makeNullableIfPresent(String columnName, String sqlType) {
+        if (columnExists("promotions", columnName)) {
+            jdbcTemplate.execute(
+                    "ALTER TABLE promotions MODIFY COLUMN " + columnName + " " + sqlType + " NULL"
+            );
         }
     }
 

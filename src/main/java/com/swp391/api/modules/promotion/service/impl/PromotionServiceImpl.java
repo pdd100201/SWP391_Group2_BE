@@ -1,6 +1,7 @@
 package com.swp391.api.modules.promotion.service.impl;
 
 import com.swp391.api.common.exception.BusinessException;
+import com.swp391.api.modules.account.dto.PageResponse;
 import com.swp391.api.modules.promotion.dto.PromotionRequest;
 import com.swp391.api.modules.promotion.dto.PromotionResponse;
 import com.swp391.api.modules.promotion.entity.DiscountType;
@@ -10,6 +11,9 @@ import com.swp391.api.modules.promotion.repository.PromotionRepository;
 import com.swp391.api.modules.promotion.service.PromotionService;
 import java.math.BigDecimal;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class PromotionServiceImpl implements PromotionService {
 
+    //BigDecimal so sánh bằng compareTo, không dùng dấu >.
     private static final BigDecimal ZERO = BigDecimal.ZERO;
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
 
@@ -33,6 +38,28 @@ public class PromotionServiceImpl implements PromotionService {
         return promotionRepository.findAllByOrderByCreatedAtDesc().stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<PromotionResponse> getPage(int page, int size, String search, String status) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        String keyword = trimToNull(search);
+        Boolean active = parseStatusFilter(status);
+        Page<Promotion> result = promotionRepository.searchPromotions(
+                keyword,
+                active,
+                PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"))
+        );
+
+        return new PageResponse<>(
+                result.getContent().stream().map(this::toResponse).toList(),
+                result.getNumber(),
+                result.getSize(),
+                result.getTotalElements(),
+                result.getTotalPages()
+        );
     }
 
     @Override
@@ -150,7 +177,7 @@ public class PromotionServiceImpl implements PromotionService {
                 promotion.getUpdatedAt()
         );
     }
-
+    //Xóa khoảng trắng đầu/cuối và chuyển code thành chữ hoa.
     private String normalizeCode(String code) {
         return code == null ? null : code.trim().toUpperCase();
     }
@@ -160,6 +187,19 @@ public class PromotionServiceImpl implements PromotionService {
             return null;
         }
         return value.trim();
+    }
+
+    private Boolean parseStatusFilter(String status) {
+        if (status == null || status.isBlank() || "ALL".equalsIgnoreCase(status)) {
+            return null;
+        }
+        if ("ACTIVE".equalsIgnoreCase(status)) {
+            return Boolean.TRUE;
+        }
+        if ("INACTIVE".equalsIgnoreCase(status)) {
+            return Boolean.FALSE;
+        }
+        throw new BusinessException("Invalid promotion status filter.");
     }
 
     private BigDecimal defaultZero(BigDecimal value) {

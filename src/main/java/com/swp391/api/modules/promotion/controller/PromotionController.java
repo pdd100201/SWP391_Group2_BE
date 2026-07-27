@@ -1,11 +1,11 @@
 package com.swp391.api.modules.promotion.controller;
 
+import com.swp391.api.modules.account.dto.PageResponse;
 import com.swp391.api.modules.promotion.dto.PromotionRequest;
 import com.swp391.api.modules.promotion.dto.PromotionResponse;
 import com.swp391.api.modules.promotion.dto.PromotionStatusRequest;
 import com.swp391.api.modules.promotion.service.PromotionService;
 import jakarta.validation.Valid;
-import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -29,8 +30,13 @@ public class PromotionController {
     }
 
     @GetMapping
-    public ResponseEntity<List<PromotionResponse>> getAll() {
-        return ResponseEntity.ok(promotionService.getAll());
+    public ResponseEntity<PageResponse<PromotionResponse>> getAll(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, defaultValue = "ALL") String status
+    ) {
+        return ResponseEntity.ok(promotionService.getPage(page, size, search, status));
     }
 
     @GetMapping("/{id}")
