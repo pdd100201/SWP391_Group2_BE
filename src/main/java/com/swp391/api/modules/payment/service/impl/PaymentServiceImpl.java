@@ -197,6 +197,7 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     @Transactional
+    //áp mã giảm giá vào bill của một reservation
     public void applyReservationPromotion(Long reservationId, String code) {
         List<RestaurantOrder> orders = findReservationOrders(reservationId);
         Bill bill = getOrCreateReservationBill(orders);
@@ -208,10 +209,13 @@ public class PaymentServiceImpl implements PaymentService {
         Promotion promotion = promotionRepository.findByCodeIgnoreCase(code == null ? "" : code.trim())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Promotion code not found"));
         validatePromotion(promotion, bill.getSubtotal(), bill.getPromotion());
+
         Promotion currentPromotion = bill.getPromotion();
+        //Nếu bill đang có mã cũ khác mã mới, giảm lượt dùng mã cũ.
         if (currentPromotion != null && !currentPromotion.getId().equals(promotion.getId())) {
             decrementUsedCount(currentPromotion);
         }
+        //Nếu bill chưa có mã hoặc đổi sang mã mới, tăng lượt dùng mã mới.
         if (currentPromotion == null || !currentPromotion.getId().equals(promotion.getId())) {
             promotion.setUsedCount((promotion.getUsedCount() == null ? 0 : promotion.getUsedCount()) + 1);
         }
@@ -344,8 +348,9 @@ public class PaymentServiceImpl implements PaymentService {
         bill.setPaidAt(paidAt);
         return billRepository.save(bill);
     }
-
+    //tính lại toàn bộ tiền của bill.
     private void refreshBillTotals(Bill bill, List<RestaurantOrder> orders) {
+        //tiền tất cả món trong tất cả order bỏ qua món đã cancelled
         BigDecimal subtotal = orders.stream()
                 .flatMap(order -> order.getItems().stream())
                 .filter(item -> item.getStatus() != OrderItemStatus.CANCELLED)
@@ -353,6 +358,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
         BigDecimal discount = calculateDiscount(bill.getPromotion(), subtotal);
+        //total = subtotal - discount
         bill.setSubtotal(subtotal);
         bill.setDiscountAmount(discount);
         bill.setTotal(subtotal.subtract(discount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
@@ -438,7 +444,7 @@ public class PaymentServiceImpl implements PaymentService {
                 + "&accountName="
                 + accountName;
     }
-
+    //tính số tiền cuối cùng của một order sau khi trừ promotion.
     private BigDecimal calculateTotal(RestaurantOrder order) {
         BigDecimal subtotal = order.getItems().stream()
                 .filter(item -> item.getStatus() != OrderItemStatus.CANCELLED)
@@ -461,7 +467,7 @@ public class PaymentServiceImpl implements PaymentService {
                     "All non-cancelled items must be served before creating a payment");
         }
     }
-
+    //công thức tính số tiền giảm.
     private BigDecimal calculateDiscount(Promotion promotion, BigDecimal subtotal) {
         if (promotion == null || subtotal.compareTo(BigDecimal.ZERO) <= 0) {
             return BigDecimal.ZERO;
@@ -469,10 +475,11 @@ public class PaymentServiceImpl implements PaymentService {
         if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
             return BigDecimal.ZERO;
         }
-
+        //Nếu PERCENT -> subtotal * value / 100, FIXED -> value
         BigDecimal discount = promotion.getDiscountType() == DiscountType.PERCENT
                 ? subtotal.multiply(promotion.getDiscountValue()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
                 : promotion.getDiscountValue();
+        //vượt max discount -> lấy max discount, vượt subtotal -> lấy subtotal
         if (promotion.getMaxDiscountAmount() != null && discount.compareTo(promotion.getMaxDiscountAmount()) > 0) {
             discount = promotion.getMaxDiscountAmount();
         }
@@ -481,22 +488,26 @@ public class PaymentServiceImpl implements PaymentService {
 
     private void validatePromotion(Promotion promotion, BigDecimal subtotal, Promotion currentPromotion) {
         if (promotion.getStatus() != PromotionStatus.ACTIVE) {
+            //phải active
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is inactive");
         }
+        //Phải trong thời gian hiệu lực
         LocalDateTime now = LocalDateTime.now();
         if (now.isBefore(promotion.getStartDate()) || now.isAfter(promotion.getEndDate())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is outside its valid period");
         }
+        //Bill phải đủ minimum
         if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Bill total does not meet the minimum amount");
         }
+        //Không vượt usage limit
         boolean samePromotion = currentPromotion != null && currentPromotion.getId().equals(promotion.getId());
         if (!samePromotion && promotion.getUsageLimit() != null
                 && (promotion.getUsedCount() == null ? 0 : promotion.getUsedCount()) >= promotion.getUsageLimit()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion usage limit has been reached");
         }
     }
-
+    //giảm số lượt đã dùng khi bỏ mã hoặc đổi mã.
     private void decrementUsedCount(Promotion promotion) {
         int usedCount = promotion.getUsedCount() == null ? 0 : promotion.getUsedCount();
         promotion.setUsedCount(Math.max(0, usedCount - 1));
