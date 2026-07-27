@@ -1,6 +1,7 @@
 package com.swp391.api.modules.order.entity;
 
-// Workflow state of each dish line from draft to kitchen/service completion.
+// Vòng đời món: nháp -> xác nhận -> chế biến -> sẵn sàng -> đã phục vụ.
+// CANCELLED là nhánh kết thúc khi nhân viên hủy món hợp lệ.
 public enum OrderItemStatus {
     DRAFT,
     CONFIRMED,

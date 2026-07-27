@@ -6,7 +6,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
-// Full order projection consumed by staff order management and public order screens.
+// Dữ liệu đầy đủ của một order bàn cho cả màn nhân viên và trang gọi món công khai.
+// Response ghép Reservation, Table, Waiter, Promotion, Payment và danh sách món.
 public record OrderResponse(
         Long id,
         String orderCode,

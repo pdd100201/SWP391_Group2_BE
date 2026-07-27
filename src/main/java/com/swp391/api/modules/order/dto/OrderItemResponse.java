@@ -4,7 +4,8 @@ import com.swp391.api.modules.order.entity.OrderItemStatus;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-// One line item projection inside OrderResponse.
+// Dữ liệu một dòng món trả về bên trong OrderResponse.
+// Tên, ảnh, danh mục và đơn giá là snapshot để lịch sử không đổi theo Menu hiện tại.
 public record OrderItemResponse(
         Long id,
         Long menuItemId,
