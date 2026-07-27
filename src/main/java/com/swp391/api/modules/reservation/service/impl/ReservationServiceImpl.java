@@ -384,7 +384,21 @@ public class ReservationServiceImpl implements ReservationService {
                 reservation.getUpdatedAt()
         );
         // Điền thêm thông tin Hóa đơn đi kèm (nếu đã tạo hóa đơn gọi món cho đơn đặt bàn này)
-        response.setTableIds(resolveTableIds(reservation));
+        List<RestaurantTable> assignedTables = resolveAssignedTables(reservation);
+        response.setTableIds(assignedTables.stream()
+                .map(RestaurantTable::getId)
+                .toList());
+        response.setTableNumbers(assignedTables.stream()
+                .map(RestaurantTable::getTableNumber)
+                .filter(value -> value != null && !value.isBlank())
+                .toList());
+        response.setTableNames(assignedTables.stream()
+                .map(table -> {
+                    String tableName = table.getTableName();
+                    return tableName == null || tableName.isBlank() ? table.getTableNumber() : tableName;
+                })
+                .filter(value -> value != null && !value.isBlank())
+                .toList());
         findDisplayOrderForReservation(reservation.getReservationId()).ifPresent(order -> {
             response.setOrderId(order.getId());
             response.setOrderCode(order.getOrderCode());
@@ -426,15 +440,22 @@ public class ReservationServiceImpl implements ReservationService {
     }
 
     private List<Long> resolveTableIds(Reservation reservation) {
+        return resolveAssignedTables(reservation).stream()
+                .map(RestaurantTable::getId)
+                .toList();
+    }
+
+    private List<RestaurantTable> resolveAssignedTables(Reservation reservation) {
         List<RestaurantTable> tables = reservation.getTables();
         if (tables != null && !tables.isEmpty()) {
-            return tables.stream()
-                    .map(RestaurantTable::getId)
-                    .toList();
+            return tables;
         }
-
         Long tableId = reservation.getTableId();
-        return tableId == null ? List.of() : List.of(tableId);
+        return tableId == null
+                ? List.of()
+                : tableRepository.findById(tableId)
+                .map(List::of)
+                .orElse(List.of());
     }
 
     // LẤY EMAIL CỦA TÀI KHOẢN ĐANG ĐĂNG NHẬP (Có thể ẩn danh/Null)

@@ -50,7 +50,7 @@ public class JwtUtils {
         return false;
     }
 
-    // 2. Hàm lôi Email ra từ Token
+    // 2. Hàm lấy Email ra từ Token
     public String getEmailFromToken(String token) {
         return Jwts.parser()
                 .verifyWith(secretKey)
@@ -60,7 +60,7 @@ public class JwtUtils {
                 .getSubject();
     }
 
-    // 3. Hàm lôi Role ra từ Token
+    // 3. Hàm lấy Role ra từ Token
     public String getRoleFromToken(String token) {
         return Jwts.parser()
                 .verifyWith(secretKey)
