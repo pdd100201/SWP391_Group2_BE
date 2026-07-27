@@ -14,6 +14,8 @@ public class ReservationResponse {
     private Long customerId;
     private Long tableId;
     private List<Long> tableIds = new ArrayList<>();
+    private List<String> tableNumbers = new ArrayList<>();
+    private List<String> tableNames = new ArrayList<>();
     private String fullName;
     private String phone;
     private String email;
@@ -89,6 +91,22 @@ public class ReservationResponse {
 
     public void setTableIds(List<Long> tableIds) {
         this.tableIds = tableIds;
+    }
+
+    public List<String> getTableNumbers() {
+        return tableNumbers;
+    }
+
+    public void setTableNumbers(List<String> tableNumbers) {
+        this.tableNumbers = tableNumbers;
+    }
+
+    public List<String> getTableNames() {
+        return tableNames;
+    }
+
+    public void setTableNames(List<String> tableNames) {
+        this.tableNames = tableNames;
     }
 
     public String getFullName() {

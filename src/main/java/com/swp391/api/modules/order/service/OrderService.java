@@ -685,7 +685,7 @@ public class OrderService {
         orderRepository.saveAll(orders);
         return getGroup(reservationId);
     }
-
+    //apply promotion
     public OrderResponse applyPromotion(Long orderId, String code) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -697,7 +697,7 @@ public class OrderService {
         Promotion promotion = promotionRepository.findByCodeIgnoreCase(code == null ? "" : code.trim())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Promotion code not found"));
         validatePromotion(promotion, subtotal, order.getPromotion());
-
+        //Thay đổi discound
         Promotion currentPromotion = order.getPromotion();
         if (currentPromotion != null && !currentPromotion.getId().equals(promotion.getId())) {
             decrementUsedCount(currentPromotion);
@@ -827,7 +827,7 @@ public class OrderService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
     }
-
+    //Tính tiền được giảm
     private BigDecimal calculateDiscount(Promotion promotion, BigDecimal subtotal) {
         if (promotion == null || subtotal.compareTo(BigDecimal.ZERO) <= 0) {
             return BigDecimal.ZERO;
@@ -835,7 +835,7 @@ public class OrderService {
         if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
             return BigDecimal.ZERO;
         }
-
+        //discount = subtotal * discountValue / 100;
         BigDecimal discount = promotion.getDiscountType() == DiscountType.PERCENT
                 ? subtotal.multiply(promotion.getDiscountValue()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
                 : promotion.getDiscountValue();
@@ -866,7 +866,7 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion usage limit has been reached");
         }
     }
-
+    //tính lại discount khi order thay đổi
     private void refreshDiscount(RestaurantOrder order) {
         if (order.getPromotion() == null) {
             order.setDiscountAmount(BigDecimal.ZERO);
@@ -876,7 +876,7 @@ public class OrderService {
         validatePromotion(order.getPromotion(), subtotal, order.getPromotion());
         order.setDiscountAmount(calculateDiscount(order.getPromotion(), subtotal));
     }
-
+    //giảm số lượt đã dùng
     private void decrementUsedCount(Promotion promotion) {
         int usedCount = promotion.getUsedCount() == null ? 0 : promotion.getUsedCount();
         promotion.setUsedCount(Math.max(0, usedCount - 1));
