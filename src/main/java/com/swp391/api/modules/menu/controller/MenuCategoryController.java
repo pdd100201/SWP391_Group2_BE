@@ -9,10 +9,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Cung cấp danh sách danh mục đang hoạt động cho ô chọn danh mục trên giao diện Menu.
+ * Module hiện chỉ cho đọc danh mục, chưa có API tạo/sửa/xóa danh mục từ giao diện.
+ */
 @RestController
 @RequestMapping("/api/menu-categories")
 public class MenuCategoryController {
-    // Read-only endpoint for category dropdowns in the menu management form.
+    // Repository được dùng trực tiếp vì endpoint này chỉ đọc và chuyển đổi dữ liệu đơn giản.
     private final MenuCategoryRepository categoryRepository;
 
     public MenuCategoryController(MenuCategoryRepository categoryRepository) {
@@ -21,13 +25,14 @@ public class MenuCategoryController {
 
     @GetMapping
     public ResponseEntity<List<MenuCategoryResponse>> getActiveCategories() {
-        // The UI only needs active categories, sorted consistently for selectors.
+        // Chỉ trả danh mục đang hoạt động và sắp xếp theo tên để dropdown luôn hiển thị ổn định.
         return ResponseEntity.ok(categoryRepository.findByIsActiveTrueOrderByNameAsc().stream()
                 .map(this::toResponse)
                 .toList());
     }
 
     private MenuCategoryResponse toResponse(MenuCategory category) {
+        // Không trả thẳng entity ra ngoài API; chỉ lấy bốn trường giao diện thực sự cần.
         return new MenuCategoryResponse(
                 category.getId(), category.getName(), category.getDescription(), category.getIsActive());
     }

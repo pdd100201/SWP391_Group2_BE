@@ -26,8 +26,9 @@ import java.util.List;
 
 @Entity
 @Table(name = "restaurant_orders")
-// Order aggregate rooted at a reservation; owns line items and public access token.
+// Aggregate gốc của một đơn bàn; liên kết reservation, waiter, món và token QR công khai.
 public class RestaurantOrder extends BaseAuditableEntity {
+    // Khóa chính nội bộ; orderCode là mã nghiệp vụ hiển thị cho nhân viên.
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "order_id")
@@ -36,17 +37,21 @@ public class RestaurantOrder extends BaseAuditableEntity {
     @Column(name = "order_code", nullable = false, unique = true, length = 40)
     private String orderCode;
 
+    // Một reservation có thể có nhiều RestaurantOrder, mỗi bàn một order.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "reservation_id", nullable = false)
     private Reservation reservation;
 
+    // Lưu ID bàn trực tiếp để giữ quan hệ order-bàn ổn định trong suốt phiên phục vụ.
     @Column(name = "table_id", nullable = false)
     private Long tableId;
 
+    // Nhân viên chịu trách nhiệm được chốt tại thời điểm tạo order.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "waiter_id", nullable = false)
     private User waiter;
 
+    // Token ngẫu nhiên dùng trong URL QR; unique để mỗi đường dẫn chỉ mở đúng một order.
     @Column(name = "public_access_token", nullable = false, unique = true, length = 64)
     private String publicAccessToken;
 
@@ -54,6 +59,7 @@ public class RestaurantOrder extends BaseAuditableEntity {
     @Column(nullable = false, length = 20)
     private OrderStatus status = OrderStatus.OPEN;
 
+    // Ghi chú chung của toàn order, khác với ghi chú riêng của từng món.
     @Column(columnDefinition = "TEXT")
     private String note;
 
@@ -61,19 +67,23 @@ public class RestaurantOrder extends BaseAuditableEntity {
     @JoinColumn(name = "promotion_id")
     private Promotion promotion;
 
+    // Số tiền giảm được lưu để tương thích luồng promotion theo order cũ.
     @Column(name = "discount_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
     @Column(name = "closed_at")
     private LocalDateTime closedAt;
 
+    // Optimistic locking ngăn một lần lưu cũ âm thầm ghi đè thay đổi mới hơn.
     @Version
     private Long version;
 
+    // cascade lưu món theo order; orphanRemoval xóa DB khi món DRAFT bị bỏ khỏi danh sách.
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id asc")
     private List<OrderItem> items = new ArrayList<>();
 
+    // Thiết lập đồng thời hai phía quan hệ để JPA lưu đúng khóa ngoại order_id.
     public void addItem(OrderItem item) {
         item.setOrder(this);
         items.add(item);

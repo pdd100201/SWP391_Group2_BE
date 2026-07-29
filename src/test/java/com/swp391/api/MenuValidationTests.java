@@ -15,11 +15,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+/**
+ * Kiểm tra các quy tắc validation quan trọng của món ăn và file ảnh.
+ * Các test này giúp phát hiện sớm khi một thay đổi vô tình cho phép dữ liệu không hợp lệ đi qua.
+ */
 class MenuValidationTests {
+    // Validator thật của Jakarta được dùng giống cơ chế @Valid khi controller nhận request.
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
     @Test
     void menuRequiresPositiveIntegerPriceDescriptionAndImage() {
+        // Bắt đầu bằng request hợp lệ, sau đó cố ý làm sai ba trường để kiểm tra đúng tên field lỗi.
         MenuItemRequest request = validRequest();
         assertTrue(validator.validate(request).isEmpty());
 
@@ -35,6 +41,7 @@ class MenuValidationTests {
 
     @Test
     void menuRejectsFractionalPrice() {
+        // Giá bán trong dự án là VND nguyên nên giá có phần thập phân phải bị từ chối.
         MenuItemRequest request = validRequest();
         request.setPrice(new BigDecimal("1500.50"));
         assertFalse(validator.validateProperty(request, "price").isEmpty());
@@ -42,6 +49,7 @@ class MenuValidationTests {
 
     @Test
     void cloudinaryValidationRejectsExternalUrlsAndFakeImages() {
+        // URL Cloudinary hợp lệ được chấp nhận, URL ngoài hệ thống và file giả phải bị từ chối.
         CloudinaryImageService service = new CloudinaryImageService(new Cloudinary(), "golden-spoon");
         assertTrue(service.isCloudinaryImageUrl("https://res.cloudinary.com/demo/image/upload/sample.jpg"));
         assertFalse(service.isCloudinaryImageUrl("https://example.com/sample.jpg"));
@@ -52,6 +60,7 @@ class MenuValidationTests {
     }
 
     private MenuItemRequest validRequest() {
+        // Tạo dữ liệu chuẩn dùng chung để mỗi test chỉ cần thay field đang muốn kiểm tra.
         MenuItemRequest request = new MenuItemRequest();
         request.setName("Test dish");
         request.setCategory("Main Course");

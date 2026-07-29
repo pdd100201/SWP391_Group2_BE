@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/order-access/{token}")
 public class PublicOrderController {
-    // Public customer-facing order API, protected by an unguessable order token.
+    // API gọi món cho khách. Token khó đoán trên mã QR thay cho tài khoản/JWT nhân viên.
     private final OrderService orderService;
 
     public PublicOrderController(OrderService orderService) {
@@ -30,11 +30,12 @@ public class PublicOrderController {
 
     @GetMapping
     public ResponseEntity<OrderResponse> getOrder(@PathVariable String token) {
-        // Lets guests reload their current order without staff credentials.
+        // Cho phép khách tải lại đúng order hiện tại mà không cần đăng nhập.
         return ResponseEntity.ok(orderService.getByToken(token));
     }
 
     @GetMapping("/menu")
+    // Chỉ trả các món đang hoạt động và có trạng thái AVAILABLE/LIMITED.
     public ResponseEntity<List<MenuItemResponse>> getMenu(@PathVariable String token) {
         return ResponseEntity.ok(orderService.getPublicMenu(token));
     }
@@ -42,11 +43,12 @@ public class PublicOrderController {
     @PostMapping("/items")
     public ResponseEntity<OrderResponse> addItem(
             @PathVariable String token, @Valid @RequestBody AddOrderItemRequest request) {
-        // Guest-added items stay DRAFT until the guest submits them.
+        // Món khách thêm được giữ ở DRAFT cho đến khi khách bấm gửi bếp.
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.addPublicItem(token, request));
     }
 
     @PatchMapping("/items/{itemId}")
+    // Khách chỉ được sửa món DRAFT thuộc chính order xác định bởi token.
     public ResponseEntity<OrderResponse> updateItem(
             @PathVariable String token,
             @PathVariable Long itemId,
@@ -55,11 +57,13 @@ public class PublicOrderController {
     }
 
     @DeleteMapping("/items/{itemId}")
+    // Khách chỉ xóa được DRAFT; các trạng thái sau phải nhờ nhân viên xử lý.
     public ResponseEntity<OrderResponse> removeItem(@PathVariable String token, @PathVariable Long itemId) {
         return ResponseEntity.ok(orderService.removePublicItem(token, itemId));
     }
 
     @PostMapping("/submit")
+    // Xác nhận toàn bộ món DRAFT trong order của token.
     public ResponseEntity<OrderResponse> submit(@PathVariable String token) {
         return ResponseEntity.ok(orderService.submitPublic(token));
     }

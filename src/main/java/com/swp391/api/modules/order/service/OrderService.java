@@ -62,23 +62,32 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @Transactional
+// Điều phối toàn bộ nghiệp vụ Order. @Transactional ở cấp lớp giúp mỗi thao tác ghi
+// thành công trọn vẹn hoặc rollback toàn bộ khi có lỗi giữa Order, Table, Bill và Payment.
 public class OrderService {
+    // Receptionist được xem/quản lý order nhưng không được chuyển tiến độ chế biến món.
     private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER");
     private static final Set<String> PAYMENT_ADJUSTMENT_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_RECEPTIONIST");
 
+    // Repository của dữ liệu lõi Order, Reservation, Table, Menu và User.
     private final OrderRepository orderRepository;
     private final ReservationRepository reservationRepository;
     private final TableRepository tableRepository;
     private final MenuItemRepository menuItemRepository;
     private final UserRepository userRepository;
     private final MenuService menuService;
+
+    // Thành phần liên quan Promotion, hóa đơn và giao dịch thanh toán.
     private final PromotionRepository promotionRepository;
     private final BillRepository billRepository;
     private final PaymentRepository paymentRepository;
+
+    // Nguồn order QR cũ vẫn được đọc và chuyển về cùng một OrderResponse.
     private final QrOrderRepository qrOrderRepository;
     private final QrOrderItemRepository qrOrderItemRepository;
     private final PaymentService paymentService;
 
+    // Constructor injection làm rõ toàn bộ dependency và giúp service dễ kiểm thử.
     public OrderService(
             OrderRepository orderRepository,
             ReservationRepository reservationRepository,
@@ -106,8 +115,11 @@ public class OrderService {
         this.paymentService = paymentService;
     }
 
+    // Luồng tạo một order cho bàn chính của reservation (API tương thích cũ).
+    // Reservation và bàn được khóa để ngăn hai request đồng thời tạo trùng.
     public OrderResponse create(CreateOrderRequest request) {
         User waiter = currentUserRequired();
+        // SELECT ... FOR UPDATE giữ reservation ổn định trong suốt transaction tạo order.
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getReservationId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Reservation not found"));
         if (reservation.getStatus() != ReservationStatus.ARRIVED) {
@@ -119,6 +131,7 @@ public class OrderService {
         }
         Long assignedTableId = resolvePrimaryTableId(reservation);
         if (reservation.getTableId() == null) {
+            // Đồng bộ trường tableId cũ với bàn đầu tiên trong quan hệ nhiều bàn.
             reservation.setTableId(assignedTableId);
         }
         if (orderRepository.findByReservationReservationIdAndTableId(
@@ -131,6 +144,7 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Assigned table is not active");
         }
         if (table.getStatus() != RestaurantTable.TableStatus.OCCUPIED) {
+            // Mở order đồng nghĩa bàn bước vào trạng thái đang có khách.
             table.setStatus(RestaurantTable.TableStatus.OCCUPIED);
         }
 
@@ -140,12 +154,15 @@ public class OrderService {
         order.setReservation(reservation);
         order.setTableId(assignedTableId);
         order.setWaiter(waiter);
+        // Token UUID bỏ dấu gạch ngang có 32 ký tự khó đoán và không chứa thông tin nhạy cảm.
         order.setPublicAccessToken(UUID.randomUUID().toString().replace("-", ""));
         order.setStatus(OrderStatus.OPEN);
         order.setNote(normalize(request.getNote()));
         return toResponse(orderRepository.save(order));
     }
 
+    // Luồng hiện tại của Order Management: tạo order còn thiếu cho mọi bàn đã gán.
+    // Bàn đã có order được bỏ qua nên người dùng có thể bấm "sync" an toàn.
     public OrderGroupResponse createTableOrders(CreateOrderRequest request) {
         User waiter = currentUserRequired();
         Reservation reservation = reservationRepository.findByIdForUpdate(request.getReservationId())
@@ -161,10 +178,12 @@ public class OrderService {
             reservation.setTableId(assignedTables.get(0).getId());
         }
 
+        // Mỗi bàn sinh một order riêng nhưng mọi order vẫn cùng reservation/bill.
         for (RestaurantTable assignedTable : assignedTables) {
             Long tableId = assignedTable.getId();
             if (orderRepository.findByReservationReservationIdAndTableId(
                     reservation.getReservationId(), tableId).isPresent()) {
+                // Idempotent ở cấp bàn: sync lại không tạo bản ghi trùng.
                 continue;
             }
             RestaurantTable table = tableRepository.findByIdForUpdate(tableId)
@@ -181,6 +200,7 @@ public class OrderService {
         return getGroup(reservation.getReservationId());
     }
 
+    // Khởi tạo thông tin chung của một RestaurantOrder mới và token QR riêng cho bàn.
     private RestaurantOrder newOrder(Reservation reservation, Long tableId, User waiter, String note) {
         RestaurantOrder order = new RestaurantOrder();
         order.setOrderCode("ORD-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
@@ -194,7 +214,7 @@ public class OrderService {
         return order;
     }
 
-    // Called by QR flow when no open restaurant_order exists for the table yet.
+    // QR flow gọi hàm này khi bàn chưa có restaurant_order đang mở.
     public OrderResponse createForTable(Long tableId, Long waiterId) {
         Reservation reservation = reservationRepository.findActiveReservationByTableId(tableId)
                 .or(() -> reservationRepository.findByTableIdAndStatus(tableId, ReservationStatus.ARRIVED))
@@ -225,6 +245,7 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Hợp nhất order mới và dữ liệu QR order cũ thành một danh sách thống nhất.
     public List<OrderResponse> getOrders(boolean activeOnly) {
         List<OrderResponse> orders = new ArrayList<>();
         orderRepository.findAllByOrderByCreatedAtDesc().stream().map(this::toResponse).forEach(orders::add);
@@ -238,12 +259,13 @@ public class OrderService {
         });
         if (!activeOnly) return orders;
 
-        // Active Orders chỉ chứa order vẫn đang được phục vụ hoặc chưa thanh toán.
-        // Order bị hủy luôn bị loại; Order đã phục vụ và đã thanh toán sẽ được quản lý ở lịch sử tổng.
+        // Danh sách active chỉ giữ order đang phục vụ hoặc còn tiền chưa thanh toán.
+        // Order đã hủy, hoặc đã phục vụ và thanh toán, được chuyển sang lịch sử Revenue.
         return orders.stream().filter(this::isActiveOrder).toList();
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
+    // Gom danh sách phẳng thành reservation -> nhiều order bàn -> một bill dùng chung.
     public List<OrderGroupResponse> getGroups(boolean activeOnly) {
         Map<Long, List<OrderResponse>> grouped = new LinkedHashMap<>();
         getOrders(false).stream()
@@ -270,6 +292,7 @@ public class OrderService {
         return toGroupResponse(reservationId, orders);
     }
 
+    // Tính tổng order chưa hủy và lấy hóa đơn chung để dựng response cấp nhóm.
     private OrderGroupResponse toGroupResponse(Long reservationId, List<OrderResponse> orders) {
         Reservation reservation = reservationRepository.findById(reservationId).orElse(null);
         BigDecimal subtotal = orders.stream()
@@ -300,6 +323,7 @@ public class OrderService {
                 updatedAt);
     }
 
+    // Chọn giao dịch PENDING/PAID mới nhất để ghép thông tin thanh toán vào bill.
     public BillResponse toBillResponse(Bill bill) {
         Payment payment = switch (bill.getStatus()) {
             case PENDING -> paymentRepository.findFirstByBill_IdAndStatusOrderByCreatedAtDesc(
@@ -330,6 +354,7 @@ public class OrderService {
                 bill.getUpdatedAt());
     }
 
+    // Nhóm chỉ active khi khách ARRIVED và còn phục vụ hoặc còn phải thanh toán.
     private boolean isActiveGroup(OrderGroupResponse group) {
         if (group.reservationStatus() != ReservationStatus.ARRIVED) return false;
         boolean serviceInProgress = group.orders().stream().anyMatch(this::isActiveOrder);
@@ -338,6 +363,7 @@ public class OrderService {
         return serviceInProgress || paymentOutstanding;
     }
 
+    // Chuyển QrOrder cũ sang OrderResponse hiện tại để frontend xử lý đồng nhất.
     private OrderResponse qrToResponse(QrOrder qrOrder) {
         List<QrOrderItem> rawItems = qrOrderItemRepository.findByOrderId(qrOrder.getOrderId());
         List<OrderItemResponse> items = rawItems.stream().map(this::qrItemToResponse).toList();
@@ -401,6 +427,7 @@ public class OrderService {
                 qrOrder.getUpdatedAt());
     }
 
+    // Suy ra trạng thái phục vụ tổng quát của QR order từ trạng thái các món.
     private String qrServiceStatus(OrderStatus orderStatus, List<OrderItemResponse> items) {
         if (orderStatus != OrderStatus.OPEN) return orderStatus.name();
         if (items.stream().anyMatch(item -> item.status() == OrderItemStatus.DRAFT)) return "HAS_DRAFT";
@@ -414,6 +441,7 @@ public class OrderService {
         return "OPEN";
     }
 
+    // Bổ sung snapshot Menu còn thiếu trong bản ghi QR cũ trước khi trả về.
     private OrderItemResponse qrItemToResponse(QrOrderItem item) {
         String itemName = null, imageUrl = null, category = null;
         if (item.getItemId() != null) {
@@ -440,6 +468,7 @@ public class OrderService {
                 status, item.getSubmittedAt(), null, null, null, null, null);
     }
 
+    // Order OPEN vẫn active nếu chưa SERVED hoàn toàn hoặc chưa thanh toán xong.
     private boolean isActiveOrder(OrderResponse order) {
         if (order.status() != OrderStatus.OPEN) return false;
         boolean serviceInProgress = !"SERVED".equals(order.serviceStatus());
@@ -448,21 +477,25 @@ public class OrderService {
         return serviceInProgress || paymentOutstanding;
     }
 
+    // Truy vấn order nội bộ theo ID và chuyển entity sang DTO.
     public OrderResponse getById(Long orderId) {
         return toResponse(findOrder(orderId));
     }
 
+    // Chọn order đại diện mới nhất của reservation, ưu tiên loại không phải dữ liệu migrate.
     public OrderResponse getByReservation(Long reservationId) {
         return toResponse(findDisplayOrderForReservation(reservationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found")));
     }
 
+    // Token chỉ tiết lộ đúng order tương ứng; token sai/hết hiệu lực nhận HTTP 404.
     public OrderResponse getByToken(String token) {
         return toResponse(orderRepository.findByPublicAccessToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid")));
     }
 
     @Transactional(readOnly = true)
+    // Chỉ trả menu khi token hợp lệ, order còn OPEN và món có thể phục vụ.
     public List<MenuItemResponse> getPublicMenu(String token) {
         RestaurantOrder order = orderRepository.findByPublicAccessToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid"));
@@ -473,21 +506,24 @@ public class OrderService {
                 .toList();
     }
 
+    // Nhân viên thêm món theo orderId; bản ghi order được khóa trước khi thay đổi.
     public OrderResponse addItem(Long orderId, AddOrderItemRequest request) {
         return addItem(findOrderForUpdate(orderId), request);
     }
 
+    // Khách thêm món theo token nhưng dùng chung toàn bộ business rule với nhân viên.
     public OrderResponse addPublicItem(String token, AddOrderItemRequest request) {
         return addItem(findOrderByTokenForUpdate(token), request);
     }
 
+    // Kiểm tra order/menu/giá rồi thêm mới hoặc gộp vào dòng DRAFT tương đương.
     private OrderResponse addItem(RestaurantOrder order, AddOrderItemRequest request) {
         requireOpen(order);
         MenuItem menuItem = findActiveMenuItem(request.getMenuItemId());
         BigDecimal unitPrice = getMenuPrice(menuItem);
         String note = normalize(request.getNote());
 
-        // A repeated click for the same draft dish updates its quantity instead of creating another row.
+        // Bấm lặp cùng món, cùng note và cùng giá sẽ cộng quantity thay vì tạo dòng DRAFT mới.
         OrderItem existingDraft = order.getItems().stream()
                 .filter(item -> item.getStatus() == OrderItemStatus.DRAFT)
                 .filter(item -> item.getMenuItem().getId().equals(menuItem.getId()))
@@ -506,6 +542,7 @@ public class OrderService {
             return toResponse(orderRepository.save(order));
         }
 
+        // Chụp snapshot món và giá vào OrderItem để lịch sử không phụ thuộc Menu về sau.
         OrderItem item = new OrderItem();
         item.setMenuItem(menuItem);
         item.setMenuItemName(menuItem.getName());
@@ -520,16 +557,19 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Nhân viên cập nhật món sau khi khóa order để tránh lost update.
     public OrderResponse updateItem(Long orderId, Long itemId, UpdateOrderItemRequest request) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         return updateItem(order, itemId, request, false);
     }
 
+    // Khách cập nhật qua token; cờ publicAccess giới hạn quyền chỉ ở trạng thái DRAFT.
     public OrderResponse updatePublicItem(String token, Long itemId, UpdateOrderItemRequest request) {
         RestaurantOrder order = findOrderByTokenForUpdate(token);
         return updateItem(order, itemId, request, true);
     }
 
+    // DRAFT cho cả khách/nhân viên sửa; CONFIRMED chỉ nhân viên được sửa.
     private OrderResponse updateItem(
             RestaurantOrder order, Long itemId, UpdateOrderItemRequest request, boolean publicAccess) {
         requireOpen(order);
@@ -549,14 +589,17 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Nhân viên có thể xóa DRAFT hoặc hủy CONFIRMED chưa chế biến.
     public OrderResponse removeItem(Long orderId, Long itemId) {
         return removeItem(findOrderForUpdate(orderId), itemId, false);
     }
 
+    // Khách chỉ có quyền loại bỏ món còn DRAFT.
     public OrderResponse removePublicItem(String token, Long itemId) {
         return removeItem(findOrderByTokenForUpdate(token), itemId, true);
     }
 
+    // Xóa DRAFT khỏi collection sẽ kích hoạt orphanRemoval; CONFIRMED giữ dòng và đổi CANCELLED.
     private OrderResponse removeItem(RestaurantOrder order, Long itemId, boolean publicAccess) {
         requireOpen(order);
         OrderItem item = findItem(order, itemId);
@@ -570,6 +613,7 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Điểm vào submit dành cho nhân viên.
     public OrderResponse voidServedItem(Long orderId, Long itemId, VoidOrderItemRequest request) {
         requireAnyRole(PAYMENT_ADJUSTMENT_ROLES);
         RestaurantOrder order = findOrderForUpdate(orderId);
@@ -605,10 +649,12 @@ public class OrderService {
         return submit(findOrderForUpdate(orderId));
     }
 
+    // Điểm vào submit dành cho khách quét QR.
     public OrderResponse submitPublic(String token) {
         return submit(findOrderByTokenForUpdate(token));
     }
 
+    // Xác nhận cùng lúc toàn bộ DRAFT; không có DRAFT thì trả 409 để tránh submit rỗng.
     private OrderResponse submit(RestaurantOrder order) {
         requireOpen(order);
         List<OrderItem> drafts = order.getItems().stream()
@@ -621,6 +667,7 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Chuyển trạng thái món theo đúng thứ tự và chỉ cho các role phục vụ được phép.
     public OrderResponse updateItemStatus(Long orderId, Long itemId, OrderItemStatus target) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -641,8 +688,8 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Invalid item transition from " + item.getStatus() + " to " + target);
         }
-        // The API response consolidates equivalent rows into one displayed item. Progress every matching
-        // database row together so a waiter action cannot split that displayed quantity into separate statuses.
+        // Response gộp các dòng tương đương thành một món hiển thị. Vì vậy mọi dòng DB tương đương
+        // phải chuyển cùng lúc để một thao tác không làm số lượng hiển thị bị chia ra nhiều trạng thái.
         order.getItems().stream()
                 .filter(candidate -> isEquivalentOrderItem(candidate, item))
                 .toList()
@@ -650,6 +697,7 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Khóa order rồi giao PaymentService tạo giao dịch/QR SePay.
     public OrderResponse createSepayPayment(Long orderId) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -657,6 +705,7 @@ public class OrderService {
         return toResponse(order);
     }
 
+    // Khóa order rồi giao PaymentService ghi nhận thanh toán tiền mặt.
     public OrderResponse createCashPayment(Long orderId) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -664,6 +713,7 @@ public class OrderService {
         return toResponse(order);
     }
 
+    // Đóng luồng order một bàn: mọi món hợp lệ phải SERVED và tổng tiền phải được thanh toán.
     public OrderResponse close(Long orderId) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -680,6 +730,7 @@ public class OrderService {
                 && paymentRepository.findFirstByOrder_IdAndStatusOrderByCreatedAtDesc(orderId, PaymentStatus.PAID).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order must be paid before closing");
         }
+        // Khi đóng thành công, reservation hoàn tất và các bàn chuyển sang CLEANING.
         order.setStatus(OrderStatus.CLOSED);
         order.setClosedAt(LocalDateTime.now());
         order.getReservation().setStatus(ReservationStatus.COMPLETED);
@@ -687,6 +738,7 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Đóng toàn bộ order bàn của reservation sau khi bill chung PAID và món đã phục vụ hết.
     public OrderGroupResponse completeReservation(Long reservationId) {
         List<RestaurantOrder> orders = orderRepository.findAllByReservationReservationIdOrderByCreatedAtDesc(reservationId)
                 .stream()
@@ -712,6 +764,7 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "All non-cancelled items must be served before completing reservation");
         }
 
+        // Dùng chung một timestamp để mọi order trong nhóm có thời điểm đóng nhất quán.
         LocalDateTime closedAt = LocalDateTime.now();
         orders.forEach(order -> {
             if (order.getStatus() == OrderStatus.OPEN) {
@@ -725,7 +778,7 @@ public class OrderService {
         orderRepository.saveAll(orders);
         return getGroup(reservationId);
     }
-    //apply promotion
+    // Áp mã khuyến mãi vào order theo luồng tương thích cũ.
     public OrderResponse applyPromotion(Long orderId, String code) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -737,7 +790,8 @@ public class OrderService {
         Promotion promotion = promotionRepository.findByCodeIgnoreCase(code == null ? "" : code.trim())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Promotion code not found"));
         validatePromotion(promotion, subtotal, order.getPromotion());
-        //Thay đổi discound
+
+        // Nếu đổi sang mã khác, hoàn lượt dùng của mã cũ trước khi tăng lượt mã mới.
         Promotion currentPromotion = order.getPromotion();
         if (currentPromotion != null && !currentPromotion.getId().equals(promotion.getId())) {
             decrementUsedCount(currentPromotion);
@@ -751,6 +805,7 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Gỡ khuyến mãi, đưa discount về 0 và hoàn một lượt sử dụng.
     public OrderResponse removePromotion(Long orderId) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -762,6 +817,7 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Hủy order chỉ khi chưa có món PREPARING/READY/SERVED.
     public OrderResponse cancel(Long orderId) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
@@ -772,6 +828,7 @@ public class OrderService {
         if (started) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order cannot be cancelled after preparation has started");
         }
+        // Giữ các dòng món làm lịch sử nhưng đánh dấu toàn bộ là CANCELLED.
         order.getItems().forEach(item -> {
             item.setStatus(OrderItemStatus.CANCELLED);
         });
@@ -787,6 +844,7 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    // Khi submit, làm mới snapshot theo Menu hiện tại rồi chốt giá và thời điểm gửi bếp.
     private void submitItem(OrderItem item) {
         MenuItem menuItem = findActiveMenuItem(item.getMenuItem().getId());
         item.setMenuItemName(menuItem.getName());
@@ -798,6 +856,7 @@ public class OrderService {
         item.setSubmittedAt(LocalDateTime.now());
     }
 
+    // Giá phải tồn tại và lớn hơn 0 trước khi được chốt vào order.
     private BigDecimal getMenuPrice(MenuItem item) {
         if (item.getPrice() == null || item.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Dish price is not available");
@@ -805,12 +864,14 @@ public class OrderService {
         return item.getPrice().setScale(2, RoundingMode.HALF_UP);
     }
 
+    // Dựng DTO hoàn chỉnh từ entity và dữ liệu liên quan, không trả trực tiếp JPA entity.
     private OrderResponse toResponse(RestaurantOrder order) {
         List<OrderItemResponse> items = consolidateOrderItemResponses(order.getItems());
         BigDecimal subtotal = items.stream()
                 .filter(item -> isBillableStatus(item.status()))
                 .map(OrderItemResponse::lineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // Thành tiền không âm: subtotal - discount, làm tròn hai chữ số thập phân.
         BigDecimal discountAmount = order.getPromotion() == null
                 ? BigDecimal.ZERO
                 : calculateDiscount(order.getPromotion(), subtotal);
@@ -860,6 +921,7 @@ public class OrderService {
                 order.getUpdatedAt());
     }
 
+    // Tổng order chỉ tính các dòng chưa CANCELLED.
     private BigDecimal calculateSubtotal(RestaurantOrder order) {
         return order.getItems().stream()
                 .filter(item -> isBillableStatus(item.getStatus()))
@@ -867,7 +929,7 @@ public class OrderService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
     }
-    //Tính tiền được giảm
+    // Tính số tiền giảm theo phần trăm hoặc số tiền cố định.
     private BigDecimal calculateDiscount(Promotion promotion, BigDecimal subtotal) {
         if (promotion == null || subtotal.compareTo(BigDecimal.ZERO) <= 0) {
             return BigDecimal.ZERO;
@@ -875,7 +937,7 @@ public class OrderService {
         if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
             return BigDecimal.ZERO;
         }
-        //discount = subtotal * discountValue / 100;
+        // Công thức phần trăm: subtotal × discountValue / 100.
         BigDecimal discount = promotion.getDiscountType() == DiscountType.PERCENT
                 ? subtotal.multiply(promotion.getDiscountValue()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
                 : promotion.getDiscountValue();
@@ -889,6 +951,7 @@ public class OrderService {
         return discount.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     }
 
+    // Kiểm tra trạng thái, thời hạn, giá trị đơn tối thiểu và giới hạn lượt dùng.
     private void validatePromotion(Promotion promotion, BigDecimal subtotal, Promotion currentPromotion) {
         if (promotion.getStatus() != PromotionStatus.ACTIVE) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is inactive");
@@ -906,7 +969,7 @@ public class OrderService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion usage limit has been reached");
         }
     }
-    //tính lại discount khi order thay đổi
+    // Tính lại discount khi số lượng/món trong order thay đổi.
     private void refreshDiscount(RestaurantOrder order) {
         if (order.getPromotion() == null) {
             order.setDiscountAmount(BigDecimal.ZERO);
@@ -916,18 +979,20 @@ public class OrderService {
         validatePromotion(order.getPromotion(), subtotal, order.getPromotion());
         order.setDiscountAmount(calculateDiscount(order.getPromotion(), subtotal));
     }
-    //giảm số lượt đã dùng
+    // Hoàn lại một lượt khuyến mãi nhưng không bao giờ để usedCount âm.
     private void decrementUsedCount(Promotion promotion) {
         int usedCount = promotion.getUsedCount() == null ? 0 : promotion.getUsedCount();
         promotion.setUsedCount(Math.max(0, usedCount - 1));
     }
 
+    // Tìm bàn chính để tương thích reservation kiểu cũ chỉ lưu tableId.
     private RestaurantTable findAssignedTable(Reservation reservation) {
         Long tableId = resolvePrimaryTableId(reservation);
         if (tableId == null) return null;
         return tableRepository.findById(tableId).orElse(null);
     }
 
+    // Ưu tiên tableId được chốt trên order, chỉ fallback về bàn của reservation.
     private RestaurantTable findOrderTable(RestaurantOrder order) {
         if (order.getTableId() == null) {
             return findAssignedTable(order.getReservation());
@@ -935,6 +1000,7 @@ public class OrderService {
         return tableRepository.findById(order.getTableId()).orElse(null);
     }
 
+    // Hỗ trợ cả quan hệ nhiều bàn mới và trường tableId cũ.
     private List<RestaurantTable> findAssignedTables(Reservation reservation) {
         List<RestaurantTable> tables = reservation.getTables();
         if (tables != null && !tables.isEmpty()) {
@@ -950,6 +1016,7 @@ public class OrderService {
                 .orElseGet(List::of);
     }
 
+    // Khóa từng bàn đang active rồi cập nhật đồng loạt trạng thái trong cùng transaction.
     private void updateAssignedTableStatus(Reservation reservation, RestaurantTable.TableStatus status) {
         List<Long> tableIds = findAssignedTables(reservation).stream()
                 .map(RestaurantTable::getId)
@@ -967,6 +1034,7 @@ public class OrderService {
         tableRepository.saveAll(updatedTables);
     }
 
+    // Xác định bàn đại diện: tableId cũ trước, nếu thiếu lấy bàn đầu tiên trong danh sách.
     private Long resolvePrimaryTableId(Reservation reservation) {
         if (reservation.getTableId() != null) {
             return reservation.getTableId();
@@ -980,6 +1048,7 @@ public class OrderService {
         return tables.get(0).getId();
     }
 
+    // Ánh xạ một entity OrderItem sang DTO không làm thay đổi dữ liệu đang quản lý bởi JPA.
     private OrderItemResponse toItemResponse(OrderItem item) {
         BigDecimal lineTotal = item.getSubtotal();
         return new OrderItemResponse(
@@ -989,6 +1058,7 @@ public class OrderService {
                 item.getCreatedAt(), item.getUpdatedAt());
     }
 
+    // Suy ra trạng thái phục vụ tổng hợp để frontend hiển thị badge của cả order.
     private String serviceStatus(RestaurantOrder order) {
         if (order.getStatus() != OrderStatus.OPEN) return order.getStatus().name();
         if (order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.DRAFT)) return "HAS_DRAFT";
@@ -1002,38 +1072,45 @@ public class OrderService {
         return "OPEN";
     }
 
+    // Truy vấn chỉ đọc theo ID.
     private RestaurantOrder findOrder(Long id) {
         return orderRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
     }
 
+    // Truy vấn có khóa pessimistic dùng trước mọi thao tác ghi theo ID.
     private RestaurantOrder findOrderForUpdate(Long id) {
         return orderRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
     }
 
+    // Truy vấn có khóa pessimistic dùng cho thao tác ghi từ trang QR.
     private RestaurantOrder findOrderByTokenForUpdate(String token) {
         return orderRepository.findByTokenForUpdate(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order access link is invalid"));
     }
 
+    // Chỉ tìm item bên trong order hiện tại để tránh sửa chéo order.
     private OrderItem findItem(RestaurantOrder order, Long itemId) {
         return order.getItems().stream().filter(item -> item.getId().equals(itemId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order item not found"));
     }
 
+    // Không cho gọi món đã bị ngừng phục vụ trong Menu Management.
     private MenuItem findActiveMenuItem(Long id) {
         return menuItemRepository.findById(id)
                 .filter(item -> Boolean.TRUE.equals(item.getIsActive()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Active menu item not found"));
     }
 
+    // Mọi thay đổi món/thanh toán theo order đều yêu cầu order còn OPEN.
     private void requireOpen(RestaurantOrder order) {
         if (order.getStatus() != OrderStatus.OPEN) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order is no longer open");
         }
     }
 
+    // Lấy nhân viên hiện tại từ Spring Security và truy ngược sang User trong DB.
     private User currentUserRequired() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || authentication instanceof AnonymousAuthenticationToken) {
@@ -1043,6 +1120,7 @@ public class OrderService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
     }
 
+    // Kiểm tra quyền nghiệp vụ sâu hơn quyền chung ở Controller.
     private void requireAnyRole(Set<String> roles) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         boolean allowed = authentication != null && !(authentication instanceof AnonymousAuthenticationToken)
@@ -1050,6 +1128,7 @@ public class OrderService {
         if (!allowed) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden");
     }
 
+    // Ưu tiên order thật; chỉ dùng bản ghi ORD-MIG-* khi không còn lựa chọn khác.
     private Optional<RestaurantOrder> findDisplayOrderForReservation(Long reservationId) {
         List<RestaurantOrder> orders = orderRepository.findAllByReservationReservationIdOrderByCreatedAtDesc(reservationId);
         return orders.stream()
@@ -1058,18 +1137,20 @@ public class OrderService {
                 .or(() -> orders.stream().findFirst());
     }
 
+    // Chuẩn hóa chuỗi: trim khoảng trắng và đổi chuỗi rỗng thành null.
     private String normalize(String value) {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
+    // Cập nhật subtotal mỗi khi số lượng hoặc đơn giá thay đổi.
     private void updateSubtotal(OrderItem item) {
         item.setSubtotal(item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())).setScale(2));
     }
 
     /**
-     * Builds a consolidated response without changing the managed JPA collection. This method must stay
-     * side-effect free: removing an item from RestaurantOrder.items would trigger orphanRemoval and delete
-     * the corresponding audit row from the database when a read transaction is flushed.
+     * Gộp các dòng tương đương để hiển thị nhưng tuyệt đối không sửa collection JPA đang được quản lý.
+     * Hàm phải không có side effect: nếu xóa phần tử khỏi RestaurantOrder.items, orphanRemoval có thể
+     * xóa luôn dòng lịch sử tương ứng khi transaction chỉ đọc được flush.
      */
     private List<OrderItemResponse> consolidateOrderItemResponses(List<OrderItem> sourceItems) {
         Map<OrderItemMergeKey, OrderItemResponse> consolidated = new LinkedHashMap<>();
@@ -1109,6 +1190,7 @@ public class OrderService {
         return new ArrayList<>(consolidated.values());
     }
 
+    // Tạo bản sao DTO với note đã chuẩn hóa mà không sửa entity.
     private OrderItemResponse withNote(OrderItemResponse item, String note) {
         return new OrderItemResponse(
                 item.id(), item.menuItemId(), item.menuItemName(), item.menuItemImageUrl(), item.category(),
@@ -1116,12 +1198,14 @@ public class OrderService {
                 item.voidReason(), item.voidedAt(), item.voidedBy(), item.createdAt(), item.updatedAt());
     }
 
+    // Chọn mốc sớm hơn khi gộp thời gian của nhiều dòng.
     private LocalDateTime earlier(LocalDateTime first, LocalDateTime second) {
         if (first == null) return second;
         if (second == null) return first;
         return first.isBefore(second) ? first : second;
     }
 
+    // Chọn mốc muộn hơn cho updatedAt của dòng đã gộp.
     private LocalDateTime later(LocalDateTime first, LocalDateTime second) {
         if (first == null) return second;
         if (second == null) return first;
@@ -1129,10 +1213,12 @@ public class OrderService {
     }
 
 
+    // BigDecimal.compareTo bỏ qua khác biệt scale như 10.0 và 10.00.
     private boolean samePrice(BigDecimal first, BigDecimal second) {
         return first != null && second != null && first.compareTo(second) == 0;
     }
 
+    // Hai dòng chỉ tương đương khi cùng món, trạng thái, note và đơn giá.
     private boolean isEquivalentOrderItem(OrderItem candidate, OrderItem reference) {
         return candidate.getMenuItem().getId().equals(reference.getMenuItem().getId())
                 && candidate.getStatus() == reference.getStatus()
@@ -1144,10 +1230,12 @@ public class OrderService {
         return status != OrderItemStatus.CANCELLED && status != OrderItemStatus.VOIDED;
     }
 
+    // Bỏ số 0 cuối để giá dùng làm khóa gộp có biểu diễn ổn định.
     private BigDecimal normalizedPrice(BigDecimal price) {
         return price == null ? null : price.stripTrailingZeros();
     }
 
+    // Khóa bất biến dùng để gom các dòng OrderItem khi dựng response.
     private record OrderItemMergeKey(
             Long menuItemId,
             OrderItemStatus status,

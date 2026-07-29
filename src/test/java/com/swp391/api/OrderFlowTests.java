@@ -34,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @Transactional
+// Kiểm thử tích hợp Order với database thật trong transaction; dữ liệu được rollback sau mỗi test.
 class OrderFlowTests {
     @Autowired private OrderService orderService;
     @Autowired private OrderItemRepository orderItemRepository;
@@ -43,6 +44,7 @@ class OrderFlowTests {
     @Autowired private CustomerRepository customerRepository;
 
     @BeforeEach
+    // Giả lập người dùng Waiter đã đăng nhập để các kiểm tra quyền trong service hoạt động.
     void authenticateWaiter() {
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(
@@ -52,17 +54,21 @@ class OrderFlowTests {
     }
 
     @AfterEach
+    // Xóa SecurityContext để danh tính test này không rò sang test khác.
     void clearAuthentication() {
         SecurityContextHolder.clearContext();
     }
 
     @Test
+    // Bao phủ luồng: tạo order -> gộp DRAFT -> submit -> giữ audit -> hủy món/order.
     void submitAndCancelOrderItemFlow() {
+        // Dùng món seed có sẵn để kiểm tra đúng giá snapshot khi submit.
         MenuItemResponse dish = menuService.getAll().stream()
                 .filter(item -> item.getName().equals("Fresh Garden Salad"))
                 .findFirst()
                 .orElseThrow();
 
+        // Tạo customer, bàn và reservation ARRIVED làm tiền điều kiện mở order.
         Customer customer = new Customer();
         customer.setCustomersEmail("order-flow-test-" + System.nanoTime() + "@example.com");
         customer.setFullName("Order Flow Test");
@@ -87,6 +93,7 @@ class OrderFlowTests {
         reservation.setTableId(table.getId());
         reservation = reservationRepository.save(reservation);
 
+        // Tạo order và thêm hai lần cùng món; service phải gộp thành một DRAFT quantity = 3.
         CreateOrderRequest create = new CreateOrderRequest();
         create.setReservationId(reservation.getReservationId());
         OrderResponse order = orderService.create(create);
@@ -107,7 +114,7 @@ class OrderFlowTests {
         order = orderService.submit(order.id());
         order = orderService.addItem(order.id(), addSameDraft);
 
-        // Different statuses stay separate until the new draft is submitted.
+        // Hai trạng thái khác nhau tạm thời hiển thị thành hai dòng cho đến khi DRAFT mới được submit.
         assertEquals(2, order.items().size());
         order = orderService.submit(order.id());
         Long orderId = order.id();
@@ -117,7 +124,7 @@ class OrderFlowTests {
         assertEquals(OrderItemStatus.CONFIRMED, order.items().get(0).status());
         assertTrue(order.items().get(0).unitPrice().compareTo(dish.getPrice()) == 0);
 
-        // Consolidation is a response concern only: reading must preserve both submitted audit rows.
+        // Việc gộp chỉ xảy ra ở response; DB vẫn giữ hai dòng audit đã submit.
         assertEquals(2, orderItemRepository.countByOrder_Id(orderId));
         OrderResponse reloaded = orderService.getById(orderId);
         assertEquals(1, reloaded.items().size());
@@ -127,6 +134,7 @@ class OrderFlowTests {
         assertTrue(orderService.getOrders(true).stream().anyMatch(active -> active.id().equals(orderId)));
         orderService.removeItem(order.id(), order.items().get(0).id());
 
+        // Order bị hủy biến mất khỏi active nhưng vẫn tồn tại trong lịch sử đầy đủ.
         orderService.cancel(order.id());
         assertFalse(orderService.getOrders(true).stream().anyMatch(active -> active.id().equals(orderId)));
         assertTrue(orderService.getOrders(false).stream().anyMatch(history -> history.id().equals(orderId)));
@@ -136,7 +144,9 @@ class OrderFlowTests {
     }
 
     @Test
+    // Bao phủ luồng bếp hoàn chỉnh trước khi tạo giao dịch SePay ở trạng thái PENDING.
     void createsSepayPaymentFromOrderAfterItemsAreServed() {
+        // Manager là một trong các role được chuyển trạng thái món.
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(
                         "manager@goldenspoon.vn",
@@ -182,12 +192,14 @@ class OrderFlowTests {
         order = orderService.addItem(order.id(), add);
         order = orderService.submit(order.id());
 
+        // Bắt buộc chuyển tuần tự CONFIRMED -> PREPARING -> READY -> SERVED.
         Long itemId = order.items().get(0).id();
         order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.PREPARING);
         order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.READY);
         order = orderService.updateItemStatus(order.id(), itemId, OrderItemStatus.SERVED);
         order = orderService.createSepayPayment(order.id());
 
+        // Tạo SePay chỉ khởi tạo giao dịch PENDING; webhook thanh toán sẽ xác nhận PAID sau.
         assertEquals("SEPAY", order.paymentProvider());
         assertEquals("PENDING", order.paymentStatus());
         assertNotNull(order.paymentCode());

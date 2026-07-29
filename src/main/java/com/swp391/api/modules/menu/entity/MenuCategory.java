@@ -8,21 +8,28 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+/**
+ * Đại diện cho một nhóm món như Khai vị, Món chính, Tráng miệng hoặc Đồ uống.
+ * Một MenuCategory có thể được nhiều MenuItem tham chiếu qua khóa ngoại.
+ */
 @Entity
 @Table(name = "menu_categories")
-// Menu category used to group dishes in management, QR menu, and ordering screens.
 public class MenuCategory extends BaseAuditableEntity {
+    // ID danh mục tự tăng, được lưu ở cột category_id.
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "category_id")
     private Long id;
 
+    // Tên danh mục bắt buộc, duy nhất và dài tối đa 100 ký tự.
     @Column(name = "category_name", nullable = false, unique = true, length = 100)
     private String name;
 
+    // Mô tả ngắn về nhóm món, tối đa 500 ký tự.
     @Column(length = 500)
     private String description;
 
+    // Chỉ danh mục đang hoạt động mới xuất hiện trong form tạo/sửa món.
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 

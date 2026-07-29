@@ -18,21 +18,25 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "restaurant_order_items")
-// One dish line inside an order, including price snapshot and workflow status.
+// Một dòng món trong order, lưu cả snapshot món/giá và trạng thái xử lý.
 public class OrderItem extends BaseAuditableEntity {
+    // Khóa chính tự tăng của dòng món.
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "order_item_id")
     private Long id;
 
+    // Nhiều dòng món thuộc một RestaurantOrder; order là phía quản lý vòng đời.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "order_id", nullable = false)
     private RestaurantOrder order;
 
+    // Liên kết món gốc để kiểm tra trạng thái/giá khi submit.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "menu_item_id", nullable = false)
     private MenuItem menuItem;
 
+    // Snapshot tên, ảnh và danh mục tại lúc thêm/xác nhận để lịch sử không bị đổi theo Menu.
     @Column(name = "menu_item_name", nullable = false)
     private String menuItemName;
 
@@ -42,6 +46,7 @@ public class OrderItem extends BaseAuditableEntity {
     @Column(name = "category_name", nullable = false)
     private String categoryName;
 
+    // unitPrice là đơn giá chốt; subtotal = unitPrice × quantity.
     @Column(name = "unit_price", nullable = false, precision = 19, scale = 2)
     private BigDecimal unitPrice = BigDecimal.ZERO;
 
@@ -51,13 +56,16 @@ public class OrderItem extends BaseAuditableEntity {
     @Column(nullable = false)
     private Integer quantity;
 
+    // Yêu cầu riêng cho dòng món, tối đa 500 ký tự theo DTO.
     @Column(length = 500)
     private String note;
 
+    // Trạng thái mặc định DRAFT, sau đó đi tuần tự tới SERVED hoặc CANCELLED.
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private OrderItemStatus status = OrderItemStatus.DRAFT;
 
+    // Thời điểm khách/nhân viên gửi món xuống bếp; null khi còn DRAFT.
     @Column(name = "submitted_at")
     private LocalDateTime submittedAt;
 
