@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,6 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/payments")
+@PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTIONIST')")
 public class PaymentController {
     private final PaymentService paymentService;
     private final SepayProperties sepayProperties;
@@ -61,6 +63,7 @@ public class PaymentController {
 
     @GetMapping("/bills/reservations/{reservationId}")
     public ResponseEntity<BillResponse> getReservationBill(@PathVariable Long reservationId) {
+        paymentService.syncOpenReservationBill(reservationId);
         return billRepository.findByReservation_ReservationId(reservationId)
                 .map(orderService::toBillResponse)
                 .map(ResponseEntity::ok)
@@ -103,7 +106,7 @@ public class PaymentController {
     public ResponseEntity<PaymentResponse> getLatestPayment(@PathVariable Long orderId) {
         return ResponseEntity.ok(paymentService.getLatestPayment(orderId));
     }
-
+    //SePay gọi webhook vào backend --> Nó kiểm tra API key rồi gọi service
     @PostMapping("/sepay/webhook")
     public ResponseEntity<Map<String, Boolean>> handleSepayWebhook(
             @RequestHeader(name = "Authorization", required = false) String authorization,
@@ -113,6 +116,7 @@ public class PaymentController {
     }
 
     private BillResponse getReservationBillBody(Long reservationId) {
+        paymentService.syncOpenReservationBill(reservationId);
         return billRepository.findByReservation_ReservationId(reservationId)
                 .map(orderService::toBillResponse)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Bill not found"));

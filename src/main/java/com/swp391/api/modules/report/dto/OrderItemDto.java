@@ -12,6 +12,8 @@ public class OrderItemDto {
     private BigDecimal subtotal;
     private Integer quantity;
     private String note;
+    private String status;
+    private String voidReason;
 
     public OrderItemDto() {
     }
@@ -23,6 +25,13 @@ public class OrderItemDto {
         this.subtotal = subtotal;
         this.quantity = quantity;
         this.note = note;
+    }
+
+    public OrderItemDto(Long id, String menuItemName, BigDecimal unitPrice, BigDecimal subtotal, Integer quantity, String note,
+                        String status, String voidReason) {
+        this(id, menuItemName, unitPrice, subtotal, quantity, note);
+        this.status = status;
+        this.voidReason = voidReason;
     }
 
     public Long getId() {
@@ -71,5 +80,21 @@ public class OrderItemDto {
 
     public void setNote(String note) {
         this.note = note;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public String getVoidReason() {
+        return voidReason;
+    }
+
+    public void setVoidReason(String voidReason) {
+        this.voidReason = voidReason;
     }
 }

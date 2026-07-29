@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
+import jakarta.validation.Valid;
 
 import java.util.List;
 
@@ -13,7 +15,7 @@ public class QrOrderRequest {
     private String sessionToken;
 
     @NotEmpty
-    private List<OrderItemDto> items;
+    private List<@Valid OrderItemDto> items;
 
     public String getSessionToken() { return sessionToken; }
     public void setSessionToken(String sessionToken) { this.sessionToken = sessionToken; }
@@ -30,6 +32,7 @@ public class QrOrderRequest {
         @Positive
         private Integer quantity;
 
+        @Size(max = 150, message = "Item note must not exceed 150 characters")
         private String note;
 
         public Long getItemId() { return itemId; }

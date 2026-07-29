@@ -9,6 +9,7 @@ import com.swp391.api.modules.report.dto.OrderItemDto;
 import com.swp391.api.modules.report.dto.TopSellingItemDto;
 import com.swp391.api.modules.report.dto.PaymentMethodBreakdownDto;
 import com.swp391.api.modules.order.entity.OrderItem;
+import com.swp391.api.modules.order.entity.OrderItemStatus;
 import com.swp391.api.modules.table.entity.RestaurantTable;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.report.service.ReportService;
@@ -310,6 +311,11 @@ public class ReportServiceImpl implements ReportService {
             dto.setAmount(payment.getAmount());
             dto.setProvider(payment.getProvider());
             dto.setPaidAt(payment.getPaidAt());
+            if (payment.getBill() != null) {
+                dto.setSubtotal(payment.getBill().getSubtotal());
+                dto.setDiscountAmount(payment.getBill().getDiscountAmount());
+                dto.setTotal(payment.getBill().getTotal());
+            }
 
             if (payment.getOrder() != null) {
                 dto.setOrderId(payment.getOrder().getId());
@@ -331,13 +337,18 @@ public class ReportServiceImpl implements ReportService {
                 if (payment.getOrder().getItems() != null) {
                     List<OrderItemDto> itemDtos = new ArrayList<>();
                     for (OrderItem item : payment.getOrder().getItems()) {
+                        if (item.getStatus() == OrderItemStatus.CANCELLED) {
+                            continue;
+                        }
                         itemDtos.add(new OrderItemDto(
                             item.getId(),
                             item.getMenuItemName(),
                             item.getUnitPrice(),
                             item.getSubtotal(),
                             item.getQuantity(),
-                            item.getNote()
+                            item.getNote(),
+                            item.getStatus() != null ? item.getStatus().name() : null,
+                            item.getVoidReason()
                         ));
                     }
                     dto.setItems(itemDtos);
@@ -353,6 +364,9 @@ public class ReportServiceImpl implements ReportService {
         for (Payment payment : payments) {
             if (payment.getOrder() != null && payment.getOrder().getItems() != null) {
                 for (OrderItem item : payment.getOrder().getItems()) {
+                    if (!isBillableItem(item)) {
+                        continue;
+                    }
                     String name = item.getMenuItemName();
                     TopSellingItemDto dto = map.computeIfAbsent(name, k -> new TopSellingItemDto(name, 0L, BigDecimal.ZERO));
                     dto.setQuantity(dto.getQuantity() + item.getQuantity());
@@ -383,5 +397,9 @@ public class ReportServiceImpl implements ReportService {
             return BigDecimal.ZERO;
         }
         return totalRevenue.divide(BigDecimal.valueOf(transactionCount), 2, RoundingMode.HALF_UP);
+    }
+
+    private boolean isBillableItem(OrderItem item) {
+        return item.getStatus() != OrderItemStatus.CANCELLED && item.getStatus() != OrderItemStatus.VOIDED;
     }
 }

@@ -7,6 +7,7 @@ import com.swp391.api.modules.order.dto.OrderGroupResponse;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.dto.UpdateOrderItemRequest;
 import com.swp391.api.modules.order.dto.UpdateOrderItemStatusRequest;
+import com.swp391.api.modules.order.dto.VoidOrderItemRequest;
 import com.swp391.api.modules.order.service.OrderService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -84,6 +85,15 @@ public class OrderController {
         return ResponseEntity.ok(orderService.removeItem(orderId, itemId));
     }
 
+    @PostMapping("/{orderId}/items/{itemId}/void")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTIONIST')")
+    public ResponseEntity<OrderResponse> voidServedItem(
+            @PathVariable Long orderId,
+            @PathVariable Long itemId,
+            @Valid @RequestBody VoidOrderItemRequest request) {
+        return ResponseEntity.ok(orderService.voidServedItem(orderId, itemId, request));
+    }
+
     @PostMapping("/{orderId}/submit")
     public ResponseEntity<OrderResponse> submit(@PathVariable Long orderId) {
         return ResponseEntity.ok(orderService.submit(orderId));
@@ -98,11 +108,13 @@ public class OrderController {
     }
 
     @PostMapping("/{orderId}/payment")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTIONIST')")
     public ResponseEntity<OrderResponse> createSepayPayment(@PathVariable Long orderId) {
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.createSepayPayment(orderId));
     }
 
     @PostMapping("/{orderId}/payment/cash")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTIONIST')")
     public ResponseEntity<OrderResponse> createCashPayment(@PathVariable Long orderId) {
         return ResponseEntity.status(HttpStatus.CREATED).body(orderService.createCashPayment(orderId));
     }

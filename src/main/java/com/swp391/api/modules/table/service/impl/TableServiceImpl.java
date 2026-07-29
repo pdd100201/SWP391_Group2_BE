@@ -12,24 +12,15 @@ import com.swp391.api.modules.table.entity.TableType;
 import com.swp391.api.modules.table.repository.TableRepository;
 import com.swp391.api.modules.table.repository.TableTypeRepository;
 import com.swp391.api.modules.table.service.TableService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.stream.Collectors;
-
-/**
- * Lớp triển khai {@link TableService}.
- *
- * <p>Chứa các logic nghiệp vụ dùng để quản lý bàn nhà hàng:
- * - Tạo, cập nhật và xóa bàn
- * - Cập nhật trạng thái hoạt động và trạng thái sử dụng của bàn
- * - Tìm kiếm bàn theo loại, trạng thái và trạng thái hiện tại
- * </p>
- */
+// Controller se goi vao cac ham trong service nay, service moi goi repository de thao tac DB.
 @Service
 @Transactional
 public class TableServiceImpl implements TableService {
@@ -43,13 +34,6 @@ public class TableServiceImpl implements TableService {
     private final ReservationAutoTableLockService reservationAutoTableLockService;
     private final ReservationNoShowService reservationNoShowService;
 
-    /**
-     * Khởi tạo service với các repository cần dùng cho nghiệp vụ bàn.
-     *
-     * @param tableRepository Repository quản lý thông tin bàn
-     * @param tableTypeRepository Repository quản lý loại bàn
-     * @param reservationRepository Repository quản lý đặt bàn
-     */
     public TableServiceImpl(TableRepository tableRepository,
                             TableTypeRepository tableTypeRepository,
                             ReservationRepository reservationRepository,
@@ -62,20 +46,17 @@ public class TableServiceImpl implements TableService {
         this.reservationNoShowService = reservationNoShowService;
     }
 
-    /**
-     * Chuyển đổi entity {@link RestaurantTable} sang DTO {@link TableResponse}
-     * với trạng thái đang được lưu trong database.
-     */
+    // Doi entity RestaurantTable thanh DTO tra ve cho frontend.
     private TableResponse toResponse(RestaurantTable table) {
         return toResponse(table, table.getStatus());
     }
 
-    /**
-     * Chuyển đổi entity {@link RestaurantTable} sang DTO {@link TableResponse}
-     * với trạng thái truyền vào. Dùng khi cần hiển thị trạng thái động.
-     */
+    // Doi entity thanh DTO, nhung status co the la status duoc tinh dong.
     private TableResponse toResponse(RestaurantTable table, RestaurantTable.TableStatus status) {
+        // Lay thong tin loai ban tu entity ban.
         TableType tableType = table.getTableType();
+
+        // Tao object response gom nhung field frontend can hien thi.
         return new TableResponse(
             table.getId(),
             table.getTableNumber(),
@@ -91,13 +72,9 @@ public class TableServiceImpl implements TableService {
         );
     }
 
-    /**
-     * Xác định loại bàn từ request.
-     *
-     * <p>Ưu tiên tìm theo {@code tableTypeId}; nếu không có id thì tìm theo tên loại bàn.
-     * Nếu thiếu loại bàn hoặc không tìm thấy, service trả về lỗi 400.</p>
-     */
+    // Tim loai ban cho ban dang tao/sua.
     private TableType resolveTableType(TableRequest request) {
+        // Neu frontend gui tableTypeId thi tim loai ban theo id.
         if (request.getTableTypeId() != null) {
             return tableTypeRepository.findById(request.getTableTypeId())
                 .orElseThrow(() -> new ResponseStatusException(
@@ -106,7 +83,10 @@ public class TableServiceImpl implements TableService {
                 ));
         }
 
+        // Neu khong co id, lay ten loai ban tu request.
         String typeName = request.getTableType();
+
+        // Neu co ten loai ban thi tim trong DB theo ten, khong phan biet hoa thuong.
         if (typeName != null && !typeName.trim().isEmpty()) {
             return tableTypeRepository.findByTypeNameIgnoreCase(typeName.trim())
                 .orElseThrow(() -> new ResponseStatusException(
@@ -115,30 +95,42 @@ public class TableServiceImpl implements TableService {
                 ));
         }
 
+        // Khong co id cung khong co ten loai ban thi request khong hop le.
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Table type is required");
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<TableResponse> getAllTables() {
-        // Lấy toàn bộ bàn, bao gồm cả bàn đang không active.
+        // Lay tat ca ban trong DB.
         return tableRepository.findAll()
+            // Chuyen List thanh stream de map tung ban.
             .stream()
+            // Moi RestaurantTable duoc doi thanh TableResponse.
             .map(this::toResponse)
+            // Gom lai thanh List<TableResponse> de tra ve controller.
             .collect(Collectors.toList());
     }
 
     @Override
     @Transactional
     public List<TableResponse> getTablesStatusNow() {
+        // Truoc khi hien thi floor plan, danh dau cac reservation qua gio la NO_SHOW.
         reservationNoShowService.markNoShowsAndReleaseTables();
+
+        // Khoa/giu ban cho cac reservation sap den gio.
         reservationAutoTableLockService.lockTablesForUpcomingReservations();
 
-        // Tính trạng thái hiển thị theo thời điểm hiện tại và các đặt bàn sắp tới.
+        // Lay thoi diem hien tai.
         LocalDateTime now = LocalDateTime.now();
+
+        // Lay moc bat dau: lui lai 15 phut de tinh grace time no-show.
         LocalDateTime reserveWindowStart = now.minusMinutes(NO_SHOW_GRACE_MINUTES);
+
+        // Lay moc ket thuc: cong 45 phut de canh bao reservation sap toi.
         LocalDateTime reserveWindowEnd = now.plusMinutes(UPCOMING_RESERVATION_WARNING_MINUTES);
-            // Nếu cộng phút bị tràn qua ngày mới thì chỉ xét đến cuối ngày hiện tại.
+
+        // Lay cac reservation CONFIRMED nam trong khoang thoi gian vua tinh.
         List<Reservation> upcomingReservations = reservationRepository.findUpcomingConfirmedReservationsBetween(
                 reserveWindowStart.toLocalDate(),
                 reserveWindowStart.toLocalTime(),
@@ -146,80 +138,93 @@ public class TableServiceImpl implements TableService {
                 reserveWindowEnd.toLocalTime()
         );
 
+        // Lay tat ca ban trong DB.
         return tableRepository.findAll()
+            // Duyet tung ban.
             .stream()
+            // Moi ban duoc tinh status hien thi roi doi sang TableResponse.
             .map(table -> toResponse(table, calculateDynamicStatus(table, upcomingReservations)))
+            // Gom thanh danh sach tra ve frontend.
             .collect(Collectors.toList());
     }
 
-    /**
-     * Tính trạng thái hiển thị của bàn dựa trên trạng thái lưu trong database
-     * và các reservation đã xác nhận trong khung thời gian cảnh báo.
-     */
+    // Tinh status hien thi cua ban dua vao status DB va reservation sap toi.
     private RestaurantTable.TableStatus calculateDynamicStatus(RestaurantTable table,
                                                                List<Reservation> upcomingReservations) {
-        // Các trạng thái thủ công này được ưu tiên giữ nguyên, không tự động ghi đè.
+        // Lay status hien tai cua ban trong DB.
         if (table.getStatus() == RestaurantTable.TableStatus.OCCUPIED
                 || table.getStatus() == RestaurantTable.TableStatus.CLEANING) {
+            // Ban dang co khach/dang don dep thi giu nguyen status nay.
             return table.getStatus();
         }
 
+        // Duyet danh sach reservation sap toi de xem co reservation nao giu ban nay khong.
         boolean hasUpcomingReservation = upcomingReservations.stream()
             .anyMatch(reservation -> reservesTable(reservation, table));
 
-        // Bàn còn trống nhưng có đặt bàn trong khung cảnh báo sẽ được hiển thị là RESERVED.
+        // Neu co reservation sap toi thi hien RESERVED, neu khong thi hien AVAILABLE.
         return hasUpcomingReservation
             ? RestaurantTable.TableStatus.RESERVED
             : RestaurantTable.TableStatus.AVAILABLE;
     }
 
-    /**
-     * Kiểm tra một reservation có đang giữ bàn đang xét hay không.
-     *
-     * <p>Hỗ trợ cả quan hệ nhiều bàn {@code reservation.getTables()} và trường
-     * {@code tableId} cũ để tương thích với dữ liệu hoặc luồng xử lý hiện có.</p>
-     */
+    // Kiem tra reservation co dang giu ban nay khong.
     private boolean reservesTable(Reservation reservation, RestaurantTable table) {
+        // Kiem tra kieu moi: reservation co danh sach nhieu ban.
         if (reservation.getTables() != null
                 && reservation.getTables().stream().anyMatch(currentTable -> currentTable.getId().equals(table.getId()))) {
+            // Neu id ban dang xet nam trong danh sach ban cua reservation thi dung.
             return true;
         }
 
+        // Kiem tra kieu cu: reservation chi co mot tableId.
         if (reservation.getTableId() != null) {
+            // So sanh tableId cua reservation voi id ban dang xet.
             return reservation.getTableId().equals(table.getId());
         }
+
+        // Khong khop ca hai kieu thi reservation khong giu ban nay.
         return false;
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<TableResponse> getActiveTables() {
-        // Chỉ trả về các bàn đang được bật sử dụng.
+        // Lay cac ban co isActive = true.
         return tableRepository.findByIsActive(true)
+            // Duyet tung ban active.
             .stream()
+            // Doi entity thanh response.
             .map(this::toResponse)
+            // Gom thanh list tra ve.
             .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
     public TableResponse getTableById(Long id) {
-        // Nếu id không tồn tại, trả về lỗi 404 cho client.
+        // Tim ban theo id frontend/controller truyen vao.
         RestaurantTable table = tableRepository.findById(id)
+            // Neu khong tim thay thi nem loi 404.
             .orElseThrow(() -> new ResponseStatusException(
                 HttpStatus.NOT_FOUND,
                 "Table with id " + id + " not found"
             ));
+
+        // Tim thay thi doi sang response tra ve.
         return toResponse(table);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<TableResponse> getTablesByType(String tableType) {
-        // Tìm bàn theo tên loại bàn, không phân biệt chữ hoa/thường.
+        // Goi repository tim ban theo ten loai ban.
         return tableRepository.findByTableType_TypeNameIgnoreCase(tableType)
+            // Duyet ket qua tim duoc.
             .stream()
+            // Doi tung ban thanh response.
             .map(this::toResponse)
+            // Gom thanh list tra ve.
             .collect(Collectors.toList());
     }
 
@@ -227,13 +232,19 @@ public class TableServiceImpl implements TableService {
     @Transactional(readOnly = true)
     public List<TableResponse> getTablesByStatus(String status) {
         try {
-            // Chuyển chuỗi trạng thái từ request sang enum của entity.
+            // Doi chuoi status frontend gui len sang enum TableStatus.
             RestaurantTable.TableStatus tableStatus = RestaurantTable.TableStatus.valueOf(status.toUpperCase());
+
+            // Tim cac ban co status vua parse duoc.
             return tableRepository.findByStatus(tableStatus)
+                // Duyet danh sach ban.
                 .stream()
+                // Doi entity thanh response.
                 .map(this::toResponse)
+                // Gom thanh list tra ve.
                 .collect(Collectors.toList());
         } catch (IllegalArgumentException e) {
+            // Neu status khong hop le, vi du "BUSY", thi tra loi 400.
             throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
                 "Invalid table status: " + status
@@ -243,103 +254,150 @@ public class TableServiceImpl implements TableService {
 
     @Override
     public TableResponse createTable(TableRequest request) {
-        // Kiểm tra xem số bàn đã tồn tại chưa.
+        // Kiem tra trong DB da co tableNumber nay chua.
         if (tableRepository.existsByTableNumberIgnoreCase(request.getTableNumber())) {
+            // Neu trung tableNumber thi tra loi 409 Conflict.
             throw new ResponseStatusException(
                 HttpStatus.CONFLICT,
                 "Table number " + request.getTableNumber() + " already exists"
             );
         }
 
-        // Tạo bàn mới với trạng thái mặc định là AVAILABLE và đang active.
+        // Tao entity ban moi.
         RestaurantTable table = new RestaurantTable();
+
+        // Luu so ban, trim de bo khoang trang dau/cuoi.
         table.setTableNumber(request.getTableNumber().trim());
+
+        // Neu co ten ban thi dung ten do, neu khong thi lay tableNumber lam ten ban.
         table.setTableName(request.getTableName() != null ? request.getTableName().trim() : request.getTableNumber());
+
+        // Tim loai ban hop le roi gan vao ban.
         table.setTableType(resolveTableType(request));
+
+        // Gan suc chua cua ban.
         table.setCapacity(request.getCapacity());
+
+        // Gan QR code neu frontend co gui.
         table.setQrCode(request.getQrCode());
+
+        // Ban moi mac dinh la ban trong.
         table.setStatus(RestaurantTable.TableStatus.AVAILABLE);
+
+        // Ban moi mac dinh duoc bat su dung.
         table.setIsActive(true);
 
+        // Luu ban moi vao DB.
         RestaurantTable saved = tableRepository.save(table);
+
+        // Doi ban vua luu thanh response tra ve frontend.
         return toResponse(saved);
     }
 
     @Override
     public TableResponse updateTable(Long id, TableRequest request) {
-        // Lấy bàn cần cập nhật, nếu không tồn tại thì trả về lỗi 404.
+        // Tim ban can sua theo id.
         RestaurantTable table = tableRepository.findById(id)
+            // Neu id khong ton tai thi tra 404.
             .orElseThrow(() -> new ResponseStatusException(
                 HttpStatus.NOT_FOUND,
                 "Table with id " + id + " not found"
             ));
 
-        // Kiểm tra số bàn mới có bị trùng với bàn khác hay không.
+        // Neu tableNumber moi khac tableNumber cu va da ton tai trong DB thi bao trung.
         if (!table.getTableNumber().equalsIgnoreCase(request.getTableNumber()) &&
             tableRepository.existsByTableNumberIgnoreCase(request.getTableNumber())) {
+            // Tra ve 409 vi khong cho hai ban cung mot so ban.
             throw new ResponseStatusException(
                 HttpStatus.CONFLICT,
                 "Table number " + request.getTableNumber() + " already exists"
             );
         }
 
-        // Cập nhật thông tin cơ bản của bàn.
+        // Cap nhat so ban.
         table.setTableNumber(request.getTableNumber().trim());
+
+        // Cap nhat ten ban, neu bo trong thi fallback ve tableNumber.
         table.setTableName(request.getTableName() != null ? request.getTableName().trim() : request.getTableNumber());
+
+        // Cap nhat loai ban.
         table.setTableType(resolveTableType(request));
+
+        // Cap nhat suc chua.
         table.setCapacity(request.getCapacity());
+
+        // Chi cap nhat QR code neu request co gui gia tri.
         if (request.getQrCode() != null) {
             table.setQrCode(request.getQrCode());
         }
 
+        // Luu entity da sua vao DB.
         RestaurantTable updated = tableRepository.save(table);
+
+        // Tra ve ban sau khi update.
         return toResponse(updated);
     }
 
     @Override
     public TableResponse updateTableStatus(Long id, UpdateTableStatusRequest request) {
-        // Chỉ cập nhật trạng thái sử dụng của bàn, không thay đổi thông tin khác.
+        // Tim ban can doi status theo id.
         RestaurantTable table = tableRepository.findById(id)
+            // Khong tim thay thi tra 404.
             .orElseThrow(() -> new ResponseStatusException(
                 HttpStatus.NOT_FOUND,
                 "Table with id " + id + " not found"
             ));
 
+        // Kiem tra frontend co gui status moi khong.
         if (request.getStatus() == null) {
+            // Khong co status thi request sai, tra 400.
             throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
                 "Status is required"
             );
         }
 
+        // Gan status moi cho ban.
         table.setStatus(request.getStatus());
+
+        // Luu status moi vao DB.
         RestaurantTable updated = tableRepository.save(table);
+
+        // Tra ban sau khi doi status ve frontend.
         return toResponse(updated);
     }
 
     @Override
     public TableResponse toggleTableActive(Long id) {
-        // Đảo trạng thái active để ẩn hoặc hiện bàn trong các luồng sử dụng.
+        // Tim ban can bat/tat active.
         RestaurantTable table = tableRepository.findById(id)
+            // Khong tim thay thi tra 404.
             .orElseThrow(() -> new ResponseStatusException(
                 HttpStatus.NOT_FOUND,
                 "Table with id " + id + " not found"
             ));
 
+        // Dao nguoc isActive: true -> false, false -> true.
         table.setIsActive(!table.getIsActive());
+
+        // Luu trang thai active moi vao DB.
         RestaurantTable updated = tableRepository.save(table);
+
+        // Tra ve ban sau khi toggle.
         return toResponse(updated);
     }
 
     @Override
     public void deleteTable(Long id) {
-        // Xóa bàn khỏi hệ thống sau khi kiểm tra bàn có tồn tại.
+        // Tim ban can xoa.
         RestaurantTable table = tableRepository.findById(id)
+            // Khong tim thay thi tra 404.
             .orElseThrow(() -> new ResponseStatusException(
                 HttpStatus.NOT_FOUND,
                 "Table with id " + id + " not found"
             ));
 
+        // Xoa that ban khoi database.
         tableRepository.delete(table);
     }
 }

@@ -2,19 +2,17 @@ package com.swp391.api.modules.table.repository;
 
 import com.swp391.api.modules.table.entity.RestaurantTable;
 import jakarta.persistence.LockModeType;
-import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
+// Repository dung de truy van bang restaurant_tables.
 public interface TableRepository extends JpaRepository<RestaurantTable, Long> {
 
+    // Dem so ban active, dang trong, va du suc chua cho so khach yeu cau.
     @Query("""
             SELECT COUNT(t)
             FROM RestaurantTable t
@@ -24,12 +22,14 @@ public interface TableRepository extends JpaRepository<RestaurantTable, Long> {
             """)
     Long countAvailableTablesThatFitGuests(@Param("requestedGuests") Integer requestedGuests);
 
+    // Tong so ghe cua tat ca ban trong database.
     @Query("""
             SELECT COALESCE(SUM(t.capacity), 0)
             FROM RestaurantTable t
             """)
     Long sumTotalRestaurantSeats();
 
+    // Tong so ghe cua cac ban dang active.
     @Query("""
             SELECT COALESCE(SUM(t.capacity), 0)
             FROM RestaurantTable t
@@ -37,6 +37,7 @@ public interface TableRepository extends JpaRepository<RestaurantTable, Long> {
             """)
     Long sumActiveRestaurantSeats();
 
+    // Tong so ghe cua cac ban active va dang trong.
     @Query("""
             SELECT COALESCE(SUM(t.capacity), 0)
             FROM RestaurantTable t
@@ -45,6 +46,7 @@ public interface TableRepository extends JpaRepository<RestaurantTable, Long> {
             """)
     Long sumAvailableActiveRestaurantSeats();
 
+    // Lay cac ban active, dang trong; sap xep ban nho truoc.
     @Query("""
             SELECT t
             FROM RestaurantTable t
@@ -54,47 +56,23 @@ public interface TableRepository extends JpaRepository<RestaurantTable, Long> {
             """)
     List<RestaurantTable> findAvailableActiveTablesOrderByCapacityAsc();
 
-    /**
-     * Tìm bàn theo số bàn chính xác, không phân biệt chữ hoa/thường.
-     * Dùng để kiểm tra trùng số bàn trước khi tạo bàn mới.
-     *
-     * @param tableNumber Số bàn cần tìm
-     * @return Optional chứa bàn nếu tìm thấy, hoặc empty nếu không
-     */
+    // Tim ban theo so ban, khong phan biet chu hoa/thuong.
     Optional<RestaurantTable> findByTableNumberIgnoreCase(String tableNumber);
 
-    /**
-     * Lấy tất cả bàn đang hoạt động (active = true).
-     *
-     * @return Danh sách bàn đang hoạt động
-     */
+    // Lay danh sach ban theo active/inactive.
     List<RestaurantTable> findByIsActive(Boolean isActive);
 
-    /**
-     * Lấy các bàn theo loại bàn.
-     * 
-     * @param tableType Loại bàn cần tìm
-     * @return Danh sách bàn có loại này
-     */
+    // Lay danh sach ban theo ten loai ban, vi du "VIP Room".
     List<RestaurantTable> findByTableType_TypeNameIgnoreCase(String tableType);
 
-    /**
-     * Lấy các bàn theo trạng thái.
-     * 
-     * @param status Trạng thái cần tìm
-     * @return Danh sách bàn có trạng thái này
-     */
+    // Lay danh sach ban theo trang thai: AVAILABLE, OCCUPIED, RESERVED, CLEANING.
     List<RestaurantTable> findByStatus(RestaurantTable.TableStatus status);
 
+    // Tim ban theo id va khoa dong do khi update de tranh sua cung luc.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from RestaurantTable t where t.id = :id")
     Optional<RestaurantTable> findByIdForUpdate(@Param("id") Long id);
 
-    /**
-     * Kiểm tra xem số bàn đã tồn tại chưa.
-     *
-     * @param tableNumber Số bàn cần kiểm tra
-     * @return true nếu tồn tại, false nếu không
-     */
+    // Kiem tra so ban da ton tai chua, dung de chan tao trung.
     boolean existsByTableNumberIgnoreCase(String tableNumber);
 }

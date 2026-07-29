@@ -114,10 +114,13 @@ public class QrServiceImpl implements QrService {
     public QrOrderResponse createOrder(QrOrderRequest request) {
         QrSession session = sessionRepository
                 .findBySessionTokenAndStatus(request.getSessionToken(), "ACTIVE")
-                .orElseThrow(() -> new RuntimeException("Invalid or expired session token"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired QR session. Please scan the table QR code again."));
 
         Long tableId = session.getTableId();
-        System.out.println("[QR] createOrder: sessionToken=" + request.getSessionToken().substring(0, 8) + "... tableId=" + tableId);
+        String tokenPreview = request.getSessionToken().length() > 8
+                ? request.getSessionToken().substring(0, 8) + "..."
+                : request.getSessionToken();
+        System.out.println("[QR] createOrder: sessionToken=" + tokenPreview + " tableId=" + tableId);
 
         // Prefer the staff-created restaurant_order if one is OPEN for this table
         Optional<QrAccessTokenResponse> tokenOpt = getAccessTokenForTable(tableId);

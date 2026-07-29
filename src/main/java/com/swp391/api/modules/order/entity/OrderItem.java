@@ -61,6 +61,15 @@ public class OrderItem extends BaseAuditableEntity {
     @Column(name = "submitted_at")
     private LocalDateTime submittedAt;
 
+    @Column(name = "void_reason", length = 255)
+    private String voidReason;
+
+    @Column(name = "voided_at")
+    private LocalDateTime voidedAt;
+
+    @Column(name = "voided_by", length = 100)
+    private String voidedBy;
+
     public Long getId() { return id; }
     public RestaurantOrder getOrder() { return order; }
     public void setOrder(RestaurantOrder order) { this.order = order; }
@@ -84,4 +93,10 @@ public class OrderItem extends BaseAuditableEntity {
     public void setStatus(OrderItemStatus status) { this.status = status; }
     public LocalDateTime getSubmittedAt() { return submittedAt; }
     public void setSubmittedAt(LocalDateTime submittedAt) { this.submittedAt = submittedAt; }
+    public String getVoidReason() { return voidReason; }
+    public void setVoidReason(String voidReason) { this.voidReason = voidReason; }
+    public LocalDateTime getVoidedAt() { return voidedAt; }
+    public void setVoidedAt(LocalDateTime voidedAt) { this.voidedAt = voidedAt; }
+    public String getVoidedBy() { return voidedBy; }
+    public void setVoidedBy(String voidedBy) { this.voidedBy = voidedBy; }
 }

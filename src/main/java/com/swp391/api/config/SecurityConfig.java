@@ -74,7 +74,7 @@ public class SecurityConfig {
                         .hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/promotions", "/api/promotions/**").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/api/orders/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
-                        .requestMatchers("/api/payments/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
+                        .requestMatchers("/api/payments/**").hasAnyRole("ADMIN", "MANAGER", "RECEPTIONIST")
                         .requestMatchers("/api/check-in/**").hasAnyRole("ADMIN", "MANAGER", "WAITER", "RECEPTIONIST")
                         .requestMatchers(HttpMethod.POST, "/api/reservations").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/reservations/me").authenticated()

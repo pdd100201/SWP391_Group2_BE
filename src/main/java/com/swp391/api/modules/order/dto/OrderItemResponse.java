@@ -17,6 +17,9 @@ public record OrderItemResponse(
         String note,
         OrderItemStatus status,
         LocalDateTime submittedAt,
+        String voidReason,
+        LocalDateTime voidedAt,
+        String voidedBy,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 }

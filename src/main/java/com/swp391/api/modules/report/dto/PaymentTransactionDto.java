@@ -13,6 +13,9 @@ public class PaymentTransactionDto {
     private Long orderId;
     private String orderCode;
     private BigDecimal amount;
+    private BigDecimal subtotal;
+    private BigDecimal discountAmount;
+    private BigDecimal total;
     private String provider;
     private LocalDateTime paidAt;
     private String guestName;
@@ -75,6 +78,30 @@ public class PaymentTransactionDto {
 
     public void setAmount(BigDecimal amount) {
         this.amount = amount;
+    }
+
+    public BigDecimal getSubtotal() {
+        return subtotal;
+    }
+
+    public void setSubtotal(BigDecimal subtotal) {
+        this.subtotal = subtotal;
+    }
+
+    public BigDecimal getDiscountAmount() {
+        return discountAmount;
+    }
+
+    public void setDiscountAmount(BigDecimal discountAmount) {
+        this.discountAmount = discountAmount;
+    }
+
+    public BigDecimal getTotal() {
+        return total;
+    }
+
+    public void setTotal(BigDecimal total) {
+        this.total = total;
     }
 
     public String getProvider() {

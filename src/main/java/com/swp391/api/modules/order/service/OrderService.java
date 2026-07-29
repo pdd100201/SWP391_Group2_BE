@@ -10,6 +10,7 @@ import com.swp391.api.modules.order.dto.OrderGroupResponse;
 import com.swp391.api.modules.order.dto.OrderItemResponse;
 import com.swp391.api.modules.order.dto.OrderResponse;
 import com.swp391.api.modules.order.dto.UpdateOrderItemRequest;
+import com.swp391.api.modules.order.dto.VoidOrderItemRequest;
 import com.swp391.api.modules.order.entity.OrderItem;
 import com.swp391.api.modules.order.entity.OrderItemStatus;
 import com.swp391.api.modules.order.entity.OrderStatus;
@@ -63,6 +64,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Transactional
 public class OrderService {
     private static final Set<String> STAFF_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_WAITER");
+    private static final Set<String> PAYMENT_ADJUSTMENT_ROLES = Set.of("ROLE_ADMIN", "ROLE_MANAGER", "ROLE_RECEPTIONIST");
 
     private final OrderRepository orderRepository;
     private final ReservationRepository reservationRepository;
@@ -241,12 +243,14 @@ public class OrderService {
         return orders.stream().filter(this::isActiveOrder).toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public List<OrderGroupResponse> getGroups(boolean activeOnly) {
         Map<Long, List<OrderResponse>> grouped = new LinkedHashMap<>();
         getOrders(false).stream()
                 .filter(order -> order.reservationId() != null)
                 .forEach(order -> grouped.computeIfAbsent(order.reservationId(), ignored -> new ArrayList<>()).add(order));
+
+        grouped.keySet().forEach(paymentService::syncOpenReservationBill);
 
         return grouped.entrySet().stream()
                 .map(entry -> toGroupResponse(entry.getKey(), entry.getValue()))
@@ -254,7 +258,7 @@ public class OrderService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public OrderGroupResponse getGroup(Long reservationId) {
         List<OrderResponse> orders = getOrders(false).stream()
                 .filter(order -> Objects.equals(order.reservationId(), reservationId))
@@ -262,6 +266,7 @@ public class OrderService {
         if (orders.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Order group not found");
         }
+        paymentService.syncOpenReservationBill(reservationId);
         return toGroupResponse(reservationId, orders);
     }
 
@@ -338,7 +343,7 @@ public class OrderService {
         List<OrderItemResponse> items = rawItems.stream().map(this::qrItemToResponse).toList();
 
         BigDecimal subtotal = items.stream()
-                .filter(item -> item.status() != OrderItemStatus.CANCELLED)
+                .filter(item -> isBillableStatus(item.status()))
                 .map(OrderItemResponse::lineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
@@ -402,7 +407,8 @@ public class OrderService {
         if (items.stream().anyMatch(item -> item.status() == OrderItemStatus.PREPARING)) return "PREPARING";
         if (items.stream().anyMatch(item -> item.status() == OrderItemStatus.READY)) return "READY";
         if (!items.isEmpty() && items.stream().allMatch(item ->
-                item.status() == OrderItemStatus.SERVED || item.status() == OrderItemStatus.CANCELLED)) {
+                item.status() == OrderItemStatus.SERVED || item.status() == OrderItemStatus.CANCELLED
+                        || item.status() == OrderItemStatus.VOIDED)) {
             return "SERVED";
         }
         return "OPEN";
@@ -431,7 +437,7 @@ public class OrderService {
         return new OrderItemResponse(
                 item.getOrderItemId(), item.getItemId(), itemName, imageUrl, category,
                 unitPrice, item.getQuantity(), lineTotal, item.getNote(),
-                status, item.getSubmittedAt(), null, null);
+                status, item.getSubmittedAt(), null, null, null, null, null);
     }
 
     private boolean isActiveOrder(OrderResponse order) {
@@ -564,6 +570,37 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
+    public OrderResponse voidServedItem(Long orderId, Long itemId, VoidOrderItemRequest request) {
+        requireAnyRole(PAYMENT_ADJUSTMENT_ROLES);
+        RestaurantOrder order = findOrderForUpdate(orderId);
+        requireOpen(order);
+
+        OrderItem item = findItem(order, itemId);
+        if (item.getStatus() != OrderItemStatus.SERVED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only served items can be voided from the bill");
+        }
+
+        User currentUser = currentUserRequired();
+        LocalDateTime voidedAt = LocalDateTime.now();
+        String reason = normalize(request.getReason());
+        order.getItems().stream()
+                .filter(candidate -> isEquivalentOrderItem(candidate, item))
+                .toList()
+                .forEach(candidate -> {
+                    candidate.setStatus(OrderItemStatus.VOIDED);
+                    candidate.setVoidReason(reason);
+                    candidate.setVoidedAt(voidedAt);
+                    candidate.setVoidedBy(currentUser.getFullName());
+                });
+
+        if (order.getPromotion() != null) {
+            refreshDiscount(order);
+        }
+        orderRepository.save(order);
+        paymentService.syncReservationBillAfterItemVoid(order.getReservation().getReservationId());
+        return toResponse(order);
+    }
+
     public OrderResponse submit(Long orderId) {
         return submit(findOrderForUpdate(orderId));
     }
@@ -632,7 +669,9 @@ public class OrderService {
         requireOpen(order);
         boolean hasServedItem = order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.SERVED);
         boolean hasUnfinishedItem = order.getItems().stream().anyMatch(item ->
-                item.getStatus() != OrderItemStatus.SERVED && item.getStatus() != OrderItemStatus.CANCELLED);
+                item.getStatus() != OrderItemStatus.SERVED
+                        && item.getStatus() != OrderItemStatus.CANCELLED
+                        && item.getStatus() != OrderItemStatus.VOIDED);
         if (!hasServedItem || hasUnfinishedItem) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "All non-cancelled items must be served before closing");
         }
@@ -667,7 +706,8 @@ public class OrderService {
         boolean hasUnfinishedItem = orders.stream()
                 .flatMap(order -> order.getItems().stream())
                 .anyMatch(item -> item.getStatus() != OrderItemStatus.SERVED
-                        && item.getStatus() != OrderItemStatus.CANCELLED);
+                        && item.getStatus() != OrderItemStatus.CANCELLED
+                        && item.getStatus() != OrderItemStatus.VOIDED);
         if (!hasServedItem || hasUnfinishedItem) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "All non-cancelled items must be served before completing reservation");
         }
@@ -768,7 +808,7 @@ public class OrderService {
     private OrderResponse toResponse(RestaurantOrder order) {
         List<OrderItemResponse> items = consolidateOrderItemResponses(order.getItems());
         BigDecimal subtotal = items.stream()
-                .filter(item -> item.status() != OrderItemStatus.CANCELLED)
+                .filter(item -> isBillableStatus(item.status()))
                 .map(OrderItemResponse::lineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal discountAmount = order.getPromotion() == null
@@ -822,7 +862,7 @@ public class OrderService {
 
     private BigDecimal calculateSubtotal(RestaurantOrder order) {
         return order.getItems().stream()
-                .filter(item -> item.getStatus() != OrderItemStatus.CANCELLED)
+                .filter(item -> isBillableStatus(item.getStatus()))
                 .map(OrderItem::getSubtotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
@@ -945,7 +985,8 @@ public class OrderService {
         return new OrderItemResponse(
                 item.getId(), item.getMenuItem().getId(), item.getMenuItemName(), item.getMenuItemImageUrl(),
                 item.getCategoryName(), item.getUnitPrice(), item.getQuantity(), lineTotal, item.getNote(),
-                item.getStatus(), item.getSubmittedAt(), item.getCreatedAt(), item.getUpdatedAt());
+                item.getStatus(), item.getSubmittedAt(), item.getVoidReason(), item.getVoidedAt(), item.getVoidedBy(),
+                item.getCreatedAt(), item.getUpdatedAt());
     }
 
     private String serviceStatus(RestaurantOrder order) {
@@ -954,7 +995,8 @@ public class OrderService {
         if (order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.PREPARING)) return "PREPARING";
         if (order.getItems().stream().anyMatch(item -> item.getStatus() == OrderItemStatus.READY)) return "READY";
         if (!order.getItems().isEmpty() && order.getItems().stream().allMatch(item ->
-                item.getStatus() == OrderItemStatus.SERVED || item.getStatus() == OrderItemStatus.CANCELLED)) {
+                item.getStatus() == OrderItemStatus.SERVED || item.getStatus() == OrderItemStatus.CANCELLED
+                        || item.getStatus() == OrderItemStatus.VOIDED)) {
             return "SERVED";
         }
         return "OPEN";
@@ -1057,6 +1099,9 @@ public class OrderService {
                     key.note(),
                     existing.status(),
                     earlier(existing.submittedAt(), current.submittedAt()),
+                    existing.voidReason() == null ? current.voidReason() : existing.voidReason(),
+                    earlier(existing.voidedAt(), current.voidedAt()),
+                    existing.voidedBy() == null ? current.voidedBy() : existing.voidedBy(),
                     earlier(existing.createdAt(), current.createdAt()),
                     later(existing.updatedAt(), current.updatedAt())));
         }
@@ -1068,7 +1113,7 @@ public class OrderService {
         return new OrderItemResponse(
                 item.id(), item.menuItemId(), item.menuItemName(), item.menuItemImageUrl(), item.category(),
                 item.unitPrice(), item.quantity(), item.lineTotal(), note, item.status(), item.submittedAt(),
-                item.createdAt(), item.updatedAt());
+                item.voidReason(), item.voidedAt(), item.voidedBy(), item.createdAt(), item.updatedAt());
     }
 
     private LocalDateTime earlier(LocalDateTime first, LocalDateTime second) {
@@ -1093,6 +1138,10 @@ public class OrderService {
                 && candidate.getStatus() == reference.getStatus()
                 && Objects.equals(normalize(candidate.getNote()), normalize(reference.getNote()))
                 && samePrice(candidate.getUnitPrice(), reference.getUnitPrice());
+    }
+
+    private boolean isBillableStatus(OrderItemStatus status) {
+        return status != OrderItemStatus.CANCELLED && status != OrderItemStatus.VOIDED;
     }
 
     private BigDecimal normalizedPrice(BigDecimal price) {

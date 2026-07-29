@@ -24,6 +24,10 @@ public interface PaymentService {
 
     void removeReservationPromotion(Long reservationId);
 
+    void syncOpenReservationBill(Long reservationId);
+
+    void syncReservationBillAfterItemVoid(Long reservationId);
+
     PaymentResponse getLatestPayment(Long orderId);
 
     Map<String, Boolean> handleSepayWebhook(SepayWebhookRequest request);
