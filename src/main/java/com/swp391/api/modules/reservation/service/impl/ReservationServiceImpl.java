@@ -67,7 +67,18 @@ public class ReservationServiceImpl implements ReservationService {
         this.reservationAutoTableLockService = reservationAutoTableLockService;
     }
 
-    // TẠO ĐƠN ĐẶT BÀN MỚI (Dành cho Khách hàng)
+    /**
+     * Tạo đơn đặt bàn mới dành cho Khách hàng (Online Reservation)
+     *
+     * <p>Quy trình thực thi:</p>
+     * 1. Xác thực tài khoản khách hàng đang đăng nhập từ JWT Token.
+     * 2. Kiểm tra thời gian đặt trước ít nhất 2 tiếng.
+     * 3. Kiểm tra tổng sức chứa ghế trống của nhà hàng trong khung giờ hẹn.
+     * 4. Lưu đơn vào Database với trạng thái PENDING.
+     *
+     * @param request Thông tin đơn đặt bàn từ Frontend
+     * @return Thông tin đơn đặt bàn sau khi lưu thành công
+     */
     @Override
     public ReservationResponse createReservation(CreateReservationRequest request) {
         // 1. Xác thực tài khoản người dùng hiện tại
@@ -103,6 +114,18 @@ public class ReservationServiceImpl implements ReservationService {
         return toResponse(reservationRepository.save(reservation));
     }
 
+    /**
+     * Tạo đơn đặt bàn trực tiếp tại quán (Walk-in Reservation) dành cho Lễ tân
+     *
+     * <p>Quy trình thực thi:</p>
+     * 1. Kiểm tra quyền hạn của nhân viên (ADMIN, MANAGER, RECEPTIONIST).
+     * 2. Kiểm tra sức chứa bàn ăn khả dụng.
+     * 3. Lưu đơn vào Database ở trạng thái CONFIRMED ngay lập tức.
+     * 4. Gọi service tự động khóa bàn cho khách.
+     *
+     * @param request Thông tin khách đến ăn trực tiếp
+     * @return Thông tin đơn đặt bàn đã được xác nhận
+     */
     @Override
     public ReservationResponse createWalkInReservation(CreateReservationRequest request) {
         requireAnyRole(RESERVATION_MANAGEMENT_ROLES);
@@ -134,7 +157,11 @@ public class ReservationServiceImpl implements ReservationService {
         return response;
     }
 
-    // XEM LỊCH SỬ ĐẶT BÀN CỦA TÔI (Dành cho Khách hàng)
+    /**
+     * Xem lịch sử đặt bàn của cá nhân khách hàng đang đăng nhập
+     *
+     * @return Danh sách đơn đặt bàn được sắp xếp theo thời gian mới nhất
+     */
     @Override
     @Transactional(readOnly = true)
     public List<ReservationResponse> getMyReservations() {
@@ -144,7 +171,11 @@ public class ReservationServiceImpl implements ReservationService {
                 .toList();
     }
 
-    // XEM TẤT CẢ ĐƠN ĐẶT BÀN TRÊN HỆ THỐNG (Dành cho Nhân viên)
+    /**
+     * Xem toàn bộ danh sách đơn đặt bàn trên hệ thống (Dành cho Nhân viên)
+     *
+     * @return Danh sách tất cả đơn đặt bàn trong hệ thống
+     */
     @Override
     @Transactional(readOnly = true)
     public List<ReservationResponse> getAllReservations() {
@@ -154,7 +185,17 @@ public class ReservationServiceImpl implements ReservationService {
                 .toList();
     }
 
-    // HỦY ĐƠN ĐẶT BÀN (Khách tự hủy hoặc Nhân viên hủy hộ)
+    /**
+     * Hủy đơn đặt bàn (Bởi Khách hàng sở hữu đơn hoặc Nhân viên quản lý)
+     *
+     * <p>Quy trình thực thi:</p>
+     * 1. Kiểm tra trạng thái đơn (nếu COMPLETED, CANCELLED, NO_SHOW thì không cho hủy).
+     * 2. Kiểm tra xem đơn có Order gọi món đang mở không.
+     * 3. Đổi trạng thái sang CANCELLED và giải phóng bàn ăn (nếu có) về AVAILABLE.
+     *
+     * @param reservationId Mã ID đơn đặt bàn cần hủy
+     * @return Đơn đặt bàn đã cập nhật trạng thái hủy
+     */
     @Override
     public ReservationResponse cancelReservation(Long reservationId) {
         Reservation reservation = reservationRepository.findById(reservationId)
@@ -191,7 +232,12 @@ public class ReservationServiceImpl implements ReservationService {
         return toResponse(reservationRepository.save(reservation));
     }
 
-    // XÁC NHẬN ĐƠN ĐẶT BÀN (Dành cho Quản lý/Lễ tân chốt lịch với khách)
+    /**
+     * Duyệt xác nhận đơn đặt bàn (Dành cho Quản lý/Lễ tân)
+     *
+     * @param reservationId Mã ID đơn đặt bàn cần xác nhận
+     * @return Đơn đặt bàn đã đổi trạng thái sang CONFIRMED
+     */
     @Override
     public ReservationResponse confirmReservation(Long reservationId) {
         requireAnyRole(RESERVATION_MANAGEMENT_ROLES);
@@ -217,7 +263,18 @@ public class ReservationServiceImpl implements ReservationService {
         return response;
     }
 
-    // GÁN BÀN CỤ THỂ KHI KHÁCH ĐẾN NHÀ HÀNG (Check-in đón khách)
+    /**
+     * Gán bàn cụ thể cho đơn đặt bàn khi đón khách đến nhà hàng (Check-in)
+     *
+     * <p>Quy trình thực thi:</p>
+     * 1. Lấy danh sách bàn được chọn từ request.
+     * 2. Kiểm tra sức chứa bàn ăn có đủ cho số lượng khách đi cùng không.
+     * 3. Chuyển trạng thái đơn sang ARRIVED và đổi trạng thái bàn sang OCCUPIED.
+     *
+     * @param reservationId Mã ID đơn đặt bàn
+     * @param request Danh sách ID các bàn được gán
+     * @return Đơn đặt bàn đã gán bàn thành công
+     */
     @Override
     public ReservationResponse assignTables(Long reservationId, AssignTablesRequest request) {
         requireAnyRole(STAFF_ROLES); // Nhân viên bất kỳ đều có thể xếp bàn cho khách
@@ -264,7 +321,13 @@ public class ReservationServiceImpl implements ReservationService {
         return toResponse(reservationRepository.save(reservation));
     }
 
-    // LOGIC KIỂM TRA SỨC CHỨA CÒN TRỐNG CỦA NHÀ HÀNG (Hàm nội bộ)
+    /**
+     * Thay đổi bàn cho khách đã check-in
+     *
+     * @param reservationId Mã ID đơn đặt bàn
+     * @param request Danh sách ID các bàn mới
+     * @return Đơn đặt bàn đã đổi bàn mới thành công
+     */
     @Override
     public ReservationResponse changeTables(Long reservationId, AssignTablesRequest request) {
         requireAnyRole(STAFF_ROLES);
@@ -326,6 +389,15 @@ public class ReservationServiceImpl implements ReservationService {
         return toResponse(reservationRepository.save(reservation));
     }
 
+    /**
+     * Kiểm tra khả năng phục vụ bàn ăn của nhà hàng trong khung giờ đặt
+     *
+     * <p>Tính toán thời gian ăn trung bình 90 phút và trừ tổng số ghế đã được giữ chỗ bởi các đơn khác.</p>
+     *
+     * @param reservationDate Ngày đặt bàn
+     * @param requestedStart Giờ bắt đầu hẹn
+     * @param requestedGuests Số lượng khách yêu cầu
+     */
     private void validateTableAvailability(LocalDate reservationDate,
                                            LocalTime requestedStart,
                                            Integer requestedGuests) {
@@ -352,7 +424,11 @@ public class ReservationServiceImpl implements ReservationService {
         }
     }
 
-    // GIẢI PHÓNG BÀN SANG TRẠNG THÁI TRỐNG (Hàm nội bộ dùng khi hủy đơn)
+    /**
+     * Giải phóng bàn về trạng thái trống AVAILABLE khi hủy đơn
+     *
+     * @param reservation Đơn đặt bàn cần giải phóng bàn
+     */
     private void releaseReservedTables(Reservation reservation) {
         List<RestaurantTable> tables = reservation.getTables();
         if (tables == null || tables.isEmpty()) {
@@ -366,7 +442,12 @@ public class ReservationServiceImpl implements ReservationService {
         tableRepository.saveAll(tables);
     }
 
-    // CHUYỂN ĐỔI THỰC THỂ ENTITY SANG ĐỐI TƯỢNG RESPONSE ĐỂ TRẢ VỀ FRONTEND (Hàm nội bộ)
+    /**
+     * Chuyển đổi đối tượng thực thể Entity (Database) sang DTO Response để trả về cho Frontend (React)
+     *
+     * @param reservation Thực thể đơn đặt bàn từ MySQL
+     * @return DTO ReservationResponse chứa thông tin sạch sẽ
+     */
     private ReservationResponse toResponse(Reservation reservation) {
         ReservationResponse response = new ReservationResponse(
                 reservation.getReservationId(),
