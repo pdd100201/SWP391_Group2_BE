@@ -15,8 +15,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Controller cung cấp các API báo cáo số liệu doanh thu cho nhà hàng.
- * Chỉ cho phép ADMIN và MANAGER truy cập thông tin tài chính nhạy cảm.
+ * ====================================================================================
+ * BẢN HƯỚNG DẪN CHI TIẾT SPRING BOOT REST CONTROLLER (MODULE BÁO CÁO DOANH THU - REPORT)
+ * ====================================================================================
+ * VAI TRÒ CỦA CONTROLLER:
+ *  - Cung cấp các đường dẫn API báo cáo tài chính, tổng quan doanh thu cho nhà hàng.
+ *  - Phân quyền bảo mật: Sử dụng @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')") 
+ *    để đảm bảo CHỈ CÓ ADMIN HOẶC MANAGER mới có quyền gọi API xem doanh thu nhạy cảm.
+ * ====================================================================================
  */
 @RestController
 @RequestMapping("/api/dashboard") // Giữ nguyên URI mapping để tương thích ngược với frontend
@@ -24,13 +30,20 @@ public class ReportController {
 
     private final ReportService reportService;
 
+    // Dependency Injection: Khởi tạo Service qua Constructor
     public ReportController(ReportService reportService) {
         this.reportService = reportService;
     }
 
     /**
-     * Lấy dữ liệu thống kê hoạt động tổng hợp cho Dashboard trang chủ.
-     * Chỉ cho phép ADMIN và MANAGER truy cập thông tin kinh doanh.
+     * API 1: Lấy dữ liệu thống kê hoạt động tổng hợp cho Trang chủ Dashboard
+     * - URL: GET http://localhost:8080/api/dashboard/overview
+     * 
+     * QUY TRÌNH THỰC THI (STEP-BY-STEP FLOW):
+     *  - Bước 1: React mở trang Dashboard -> Gửi HTTP GET /api/dashboard/overview kèm Token JWT.
+     *  - Bước 2: Spring Security kiểm tra Token. Nếu không phải ADMIN/MANAGER -> Trả về 403 Forbidden.
+     *  - Bước 3: Controller gọi reportService.getDashboardOverview() để đếm tổng số bàn, món ăn, nhân viên, đặt bàn.
+     *  - Bước 4: Trả về JSON đối tượng DashboardStatsResponse (HTTP 200 OK).
      */
     @GetMapping("/overview")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
@@ -39,17 +52,20 @@ public class ReportController {
             DashboardStatsResponse overview = reportService.getDashboardOverview();
             return ResponseEntity.ok(overview);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("message", "Internal server error during dashboard overview processing: " + e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("message", "Lỗi nội bộ server trong quá trình xử lý tổng quan dashboard: " + e.getMessage()));
         }
     }
 
     /**
-     * Lấy dữ liệu thống kê doanh thu dòng tiền.
+     * API 2: Lấy dữ liệu thống kê doanh thu dòng tiền vẽ biểu đồ
+     * - URL: GET http://localhost:8080/api/dashboard/revenue?startDate=2026-07-26&endDate=2026-08-02&groupBy=day
      *
-     * @param startDate Ngày bắt đầu (định dạng YYYY-MM-DD, mặc định: 30 ngày trước)
-     * @param endDate Ngày kết thúc (định dạng YYYY-MM-DD, mặc định: ngày hiện tại)
-     * @param groupBy Chế độ nhóm (day, month, year, mặc định: day)
-     * @return Báo cáo doanh thu và dữ liệu biểu đồ cột
+     * QUY TRÌNH THỰC THI (STEP-BY-STEP FLOW):
+     *  - Bước 1: React gửi các tham số startDate, endDate, groupBy trên URL query string (@RequestParam).
+     *  - Bước 2: Controller kiểm tra nếu thiếu ngày -> Gán ngày mặc định (30 ngày gần nhất).
+     *  - Bước 3: Controller kiểm tra chuỗi groupBy (hour, day, month, year) và ép kiểu sang Enum GroupByMode.
+     *  - Bước 4: Controller gọi reportService.getRevenueStatistics() viết SQL tổng hợp doanh thu trong MySQL.
+     *  - Bước 5: Đóng gói và trả về JSON chứa mảng chartData cho React vẽ biểu đồ.
      */
     @GetMapping("/revenue")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
@@ -59,7 +75,7 @@ public class ReportController {
             @RequestParam(value = "groupBy", defaultValue = "day") String groupBy) {
 
         try {
-            // Thiết lập giá trị mặc định nếu tham số bị bỏ trống
+            // Bước A: Thiết lập giá trị mặc định nếu tham số bị bỏ trống
             if (startDate == null) {
                 startDate = LocalDate.now().minusDays(30);
             }
@@ -67,15 +83,15 @@ public class ReportController {
                 endDate = LocalDate.now();
             }
 
-            // Chuyển đổi chuỗi groupBy sang enum GroupByMode tương ứng
+            // Bước B: Chuyển đổi chuỗi groupBy sang enum GroupByMode tương ứng
             GroupByMode mode;
             try {
                 mode = GroupByMode.valueOf(groupBy.toUpperCase());
             } catch (IllegalArgumentException e) {
-                return ResponseEntity.badRequest().body(Map.of("message", "Group by mode 'groupBy' only accepts: hour, day, month or year"));
+                return ResponseEntity.badRequest().body(Map.of("message", "Chế độ nhóm 'groupBy' chỉ chấp nhận: hour, day, month hoặc year"));
             }
 
-            // Gọi service xử lý nghiệp vụ
+            // Bước C: Gọi service xử lý nghiệp vụ truy vấn MySQL
             RevenueStatsResponse stats = reportService.getRevenueStatistics(startDate, endDate, mode);
             return ResponseEntity.ok(stats);
 
@@ -84,7 +100,7 @@ public class ReportController {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         } catch (Exception e) {
             // Phòng tránh lỗi runtime không lường trước
-            return ResponseEntity.internalServerError().body(Map.of("message", "Internal server error during statistics processing: " + e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("message", "Lỗi xử lý báo cáo thống kê: " + e.getMessage()));
         }
     }
 }
