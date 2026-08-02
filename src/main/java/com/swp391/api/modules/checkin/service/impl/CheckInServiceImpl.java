@@ -43,9 +43,13 @@ public class CheckInServiceImpl implements CheckInService {
     }
 
     /**
-     * Lấy danh sách đặt bàn có thể check-in trong ngày.
+     * Lấy danh sách các đơn đặt bàn có thể thực hiện Check-in trong ngày
      *
-     * <p>Có thể lọc theo từ khóa tìm kiếm, ví dụ tên hoặc số điện thoại khách hàng.</p>
+     * <p>Chỉ tìm các đơn ở trạng thái PENDING hoặc CONFIRMED.</p>
+     *
+     * @param date Ngày check-in cần tra cứu
+     * @param search Từ khóa tìm kiếm (Tên khách hoặc Số điện thoại)
+     * @return Danh sách các đơn đặt bàn sẵn sàng check-in
      */
     @Override
     @Transactional(readOnly = true)
@@ -61,10 +65,16 @@ public class CheckInServiceImpl implements CheckInService {
     }
 
     /**
-     * Xử lý check-in cho khách đã đặt bàn.
+     * Xử lý thủ tục Check-in đón khách và gán bàn ăn thực tế
      *
-     * <p>Luồng xử lý gồm kiểm tra reservation, kiểm tra bàn, gán bàn cho reservation
-     * và chuyển trạng thái reservation sang ARRIVED.</p>
+     * <p>Quy trình thực thi:</p>
+     * 1. Kiểm tra đơn đặt bàn hợp lệ (phải ở trạng thái PENDING hoặc CONFIRMED).
+     * 2. Kiểm tra bàn chọn có đang trống (AVAILABLE) hoặc đang được khóa giữ chỗ cho chính đơn này (RESERVED).
+     * 3. Chuyển trạng thái đơn sang ARRIVED.
+     * 4. Chuyển trạng thái bàn sang OCCUPIED (Đang phục vụ / Hiển thị màu Đỏ).
+     *
+     * @param request Thông tin yêu cầu check-in (ID đơn đặt bàn + ID bàn ăn)
+     * @return Thông tin đơn đặt bàn sau khi check-in thành công
      */
     @Override
     @Transactional
@@ -105,8 +115,10 @@ public class CheckInServiceImpl implements CheckInService {
     }
 
     /**
-     * Lấy thông tin khách đang dùng bàn đã check-in theo tableId,
-     * kèm order đang liên kết nếu có.
+     * Lấy thông tin đoàn khách ĐANG NGỒI ĂN tại bàn (Trạng thái OCCUPIED)
+     *
+     * @param tableId Mã ID của bàn ăn
+     * @return Thông tin khách hàng và mã đơn hàng Order đi kèm
      */
     @Override
     @Transactional(readOnly = true)
@@ -117,7 +129,10 @@ public class CheckInServiceImpl implements CheckInService {
     }
 
     /**
-     * Lấy thông tin khách đã được giữ bàn nhưng chưa check-in theo tableId.
+     * Lấy thông tin đoàn khách ĐÃ ĐẶT GIỮ CHỖ TRƯỚC tại bàn nhưng chưa đến (Trạng thái RESERVED)
+     *
+     * @param tableId Mã ID của bàn ăn
+     * @return Thông tin khách hàng và giờ hẹn dự kiến
      */
     @Override
     @Transactional(readOnly = true)
