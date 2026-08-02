@@ -15,6 +15,9 @@ public class PaymentTransactionDto {
     private BigDecimal amount;
     private BigDecimal subtotal;
     private BigDecimal discountAmount;
+    private Long promotionId;
+    private String promotionCode;
+    private String promotionName;
     private BigDecimal total;
     private String provider;
     private LocalDateTime paidAt;
@@ -95,6 +98,13 @@ public class PaymentTransactionDto {
     public void setDiscountAmount(BigDecimal discountAmount) {
         this.discountAmount = discountAmount;
     }
+
+    public Long getPromotionId() { return promotionId; }
+    public void setPromotionId(Long promotionId) { this.promotionId = promotionId; }
+    public String getPromotionCode() { return promotionCode; }
+    public void setPromotionCode(String promotionCode) { this.promotionCode = promotionCode; }
+    public String getPromotionName() { return promotionName; }
+    public void setPromotionName(String promotionName) { this.promotionName = promotionName; }
 
     public BigDecimal getTotal() {
         return total;

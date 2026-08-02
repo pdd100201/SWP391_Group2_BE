@@ -12,6 +12,8 @@ public interface QrOrderRepository extends JpaRepository<QrOrder, Long> {
 
     Optional<QrOrder> findFirstByTableIdAndStatus(Long tableId, String status);
 
+    Optional<QrOrder> findFirstByRestaurantOrderIdOrderByCreatedAtDesc(Long restaurantOrderId);
+
     List<QrOrder> findAllByOrderByCreatedAtDesc();
 
     long countByOrderCodeStartingWith(String prefix);

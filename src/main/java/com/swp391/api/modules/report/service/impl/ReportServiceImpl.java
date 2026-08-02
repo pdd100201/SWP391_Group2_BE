@@ -315,6 +315,11 @@ public class ReportServiceImpl implements ReportService {
                 dto.setSubtotal(payment.getBill().getSubtotal());
                 dto.setDiscountAmount(payment.getBill().getDiscountAmount());
                 dto.setTotal(payment.getBill().getTotal());
+                if (payment.getBill().getPromotion() != null) {
+                    dto.setPromotionId(payment.getBill().getPromotion().getId());
+                    dto.setPromotionCode(payment.getBill().getPromotion().getCode());
+                    dto.setPromotionName(payment.getBill().getPromotion().getName());
+                }
             }
 
             if (payment.getOrder() != null) {

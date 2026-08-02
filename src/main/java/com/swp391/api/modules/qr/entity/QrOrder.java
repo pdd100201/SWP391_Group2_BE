@@ -12,6 +12,12 @@ public class QrOrder {
     @Column(name = "order_id")
     private Long orderId;
 
+    @Column(name = "session_id")
+    private Long sessionId;
+
+    @Column(name = "restaurant_order_id")
+    private Long restaurantOrderId;
+
     @Column(name = "table_id")
     private Long tableId;
 
@@ -44,6 +50,12 @@ public class QrOrder {
 
     public Long getOrderId() { return orderId; }
     public void setOrderId(Long orderId) { this.orderId = orderId; }
+
+    public Long getSessionId() { return sessionId; }
+    public void setSessionId(Long sessionId) { this.sessionId = sessionId; }
+
+    public Long getRestaurantOrderId() { return restaurantOrderId; }
+    public void setRestaurantOrderId(Long restaurantOrderId) { this.restaurantOrderId = restaurantOrderId; }
 
     public Long getTableId() { return tableId; }
     public void setTableId(Long tableId) { this.tableId = tableId; }

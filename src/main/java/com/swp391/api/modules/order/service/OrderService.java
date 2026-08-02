@@ -245,18 +245,11 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
-    // Hợp nhất order mới và dữ liệu QR order cũ thành một danh sách thống nhất.
+    // Chỉ trả order nghiệp vụ chính; qr_orders được giữ làm lịch sử các lần khách gửi món.
     public List<OrderResponse> getOrders(boolean activeOnly) {
-        List<OrderResponse> orders = new ArrayList<>();
-        orderRepository.findAllByOrderByCreatedAtDesc().stream().map(this::toResponse).forEach(orders::add);
-        qrOrderRepository.findAllByOrderByCreatedAtDesc().stream().map(this::qrToResponse).forEach(orders::add);
-        orders.sort((a, b) -> {
-            LocalDateTime ca = a.createdAt(), cb = b.createdAt();
-            if (ca == null && cb == null) return 0;
-            if (ca == null) return 1;
-            if (cb == null) return -1;
-            return cb.compareTo(ca);
-        });
+        List<OrderResponse> orders = orderRepository.findAllByOrderByCreatedAtDesc().stream()
+                .map(this::toResponse)
+                .toList();
         if (!activeOnly) return orders;
 
         // Danh sách active chỉ giữ order đang phục vụ hoặc còn tiền chưa thanh toán.
@@ -360,7 +353,8 @@ public class OrderService {
         boolean serviceInProgress = group.orders().stream().anyMatch(this::isActiveOrder);
         boolean paymentOutstanding = group.total().compareTo(BigDecimal.ZERO) > 0
                 && (group.bill() == null || !"PAID".equals(group.bill().status()));
-        return serviceInProgress || paymentOutstanding;
+        boolean pendingCompletion = group.bill() != null && "PAID".equals(group.bill().status());
+        return serviceInProgress || paymentOutstanding || pendingCompletion;
     }
 
     // Chuyển QrOrder cũ sang OrderResponse hiện tại để frontend xử lý đồng nhất.
