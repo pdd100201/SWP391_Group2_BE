@@ -352,6 +352,12 @@ public class ReportServiceImpl implements ReportService {
         return dtos;
     }
 
+    /**
+     * Thống kê Top 10 món ăn bán chạy nhất dựa trên tổng số lượng gọi và tổng doanh thu mang về.
+     * 
+     * @param payments Danh sách các hóa đơn đã thanh toán thành công
+     * @return Danh sách tối đa 10 món bán chạy nhất sắp xếp giảm dần theo số lượng
+     */
     private List<TopSellingItemDto> calculateTopSellingItems(List<Payment> payments) {
         Map<String, TopSellingItemDto> map = new HashMap<>();
         for (Payment payment : payments) {
@@ -375,6 +381,12 @@ public class ReportServiceImpl implements ReportService {
         return list.size() > 10 ? list.subList(0, 10) : list;
     }
 
+    /**
+     * Chuyển đổi danh sách món ăn thuộc các Order của hóa đơn sang danh sách OrderItemDto.
+     * 
+     * @param payment Hóa đơn cần truy xuất danh sách món
+     * @return Danh sách món ăn DTO phục vụ hiển thị chi tiết hóa đơn
+     */
     private List<OrderItemDto> mapPaymentOrderItems(Payment payment) {
         List<OrderItemDto> itemDtos = new ArrayList<>();
         for (RestaurantOrder order : findOrdersForPayment(payment)) {
@@ -400,6 +412,12 @@ public class ReportServiceImpl implements ReportService {
         return itemDtos;
     }
 
+    /**
+     * Tìm danh sách các đơn gọi món (Order) liên kết với hóa đơn thanh toán.
+     * 
+     * @param payment Hóa đơn cần truy vấn
+     * @return Danh sách các Order hợp lệ (loại bỏ các Order đã CANCELLED)
+     */
     private List<RestaurantOrder> findOrdersForPayment(Payment payment) {
         if (payment.getBill() != null
                 && payment.getBill().getReservation() != null
@@ -416,6 +434,12 @@ public class ReportServiceImpl implements ReportService {
         return List.of();
     }
 
+    /**
+     * Thống kê cơ cấu các phương thức thanh toán (Tiền mặt / Chuyển khoản ngân hàng / VNPay / etc.).
+     * 
+     * @param payments Danh sách các khoản thanh toán
+     * @return Danh sách cơ cấu phương thức thanh toán kèm tổng tiền và số giao dịch
+     */
     private List<PaymentMethodBreakdownDto> calculatePaymentMethodsBreakdown(List<Payment> payments) {
         Map<String, PaymentMethodBreakdownDto> map = new HashMap<>();
         for (Payment payment : payments) {
@@ -428,6 +452,14 @@ public class ReportServiceImpl implements ReportService {
         return new ArrayList<>(map.values());
     }
 
+    /**
+     * Tính toán Giá trị trung bình trên mỗi đơn hàng (Average Order Value - AOV).
+     * Công thức: AOV = Tổng doanh thu / Tổng số giao dịch.
+     * 
+     * @param totalRevenue Tổng doanh thu trong kỳ
+     * @param transactionCount Tổng số giao dịch trong kỳ
+     * @return Giá trị trung bình của một đơn hàng (AOV)
+     */
     private BigDecimal calculateAverageOrderValue(BigDecimal totalRevenue, long transactionCount) {
         if (transactionCount == 0) {
             return BigDecimal.ZERO;
@@ -435,6 +467,13 @@ public class ReportServiceImpl implements ReportService {
         return totalRevenue.divide(BigDecimal.valueOf(transactionCount), 2, RoundingMode.HALF_UP);
     }
 
+    /**
+     * Kiểm tra xem 1 món ăn trong Order có được tính tiền vào hóa đơn hay không.
+     * Loại bỏ các món có trạng thái CANCELLED (Hủy món) hoặc VOIDED (Hủy sau khi ra món).
+     * 
+     * @param item Món ăn cần kiểm tra
+     * @return true nếu món ăn hợp lệ được tính tiền, false nếu món ăn bị hủy
+     */
     private boolean isBillableItem(OrderItem item) {
         return item.getStatus() != OrderItemStatus.CANCELLED && item.getStatus() != OrderItemStatus.VOIDED;
     }
