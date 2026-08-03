@@ -356,7 +356,7 @@ public class PaymentServiceImpl implements PaymentService {
     //6. Nếu đúng thì set payment PAID và bill PAID
     // Webhook la API SePay goi ve sau khi co giao dich ngan hang.
     public Map<String, Boolean> handleSepayWebhook(SepayWebhookRequest request) {
-        // SePay co the gui id giao dich o nhieu field khac nhau, nen lay field dau tien co gia tri.
+        // Lay ma giao dich tu webhook (id, referenceCode, or code)
         String transactionId = firstNonBlank(request.getId(), request.getReferenceCode(), request.getCode());
         if (transactionId == null) {
             // Khong co ma giao dich thi request webhook khong hop le.
@@ -370,7 +370,6 @@ public class PaymentServiceImpl implements PaymentService {
             // Chi xu ly tien vao. Tien ra thi bo qua.
             return Map.of("success", true);
         }
-        //tìm payment
         // Tim payment PENDING dua tren paymentCode nam trong noi dung chuyen khoan.
         Payment payment = findPaymentFromWebhook(request);
         if (payment == null) {
