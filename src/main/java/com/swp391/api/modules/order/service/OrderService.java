@@ -796,9 +796,23 @@ public class OrderService {
         });
         order.setStatus(OrderStatus.CANCELLED);
         order.setClosedAt(LocalDateTime.now());
-        order.getReservation().setStatus(ReservationStatus.CANCELLED);
-        updateAssignedTableStatus(order.getReservation(), RestaurantTable.TableStatus.AVAILABLE);
-        return toResponse(orderRepository.save(order));
+
+        Long reservationId = order.getReservation().getReservationId();
+        updateTableStatus(order.getTableId(), RestaurantTable.TableStatus.AVAILABLE);
+
+        boolean hasRemainingOrder = orderRepository.findAllByReservationReservationIdOrderByCreatedAtDesc(reservationId)
+                .stream()
+                .anyMatch(existingOrder ->
+                        !existingOrder.getId().equals(order.getId())
+                                && existingOrder.getStatus() != OrderStatus.CANCELLED);
+        if (!hasRemainingOrder) {
+            order.getReservation().setStatus(ReservationStatus.CANCELLED);
+            updateAssignedTableStatus(order.getReservation(), RestaurantTable.TableStatus.AVAILABLE);
+        }
+
+        RestaurantOrder savedOrder = orderRepository.save(order);
+        paymentService.syncOpenReservationBill(reservationId);
+        return toResponse(savedOrder);
     }
 
     // Khi submit, làm mới snapshot theo Menu hiện tại rồi chốt giá và thời điểm gửi bếp.
@@ -932,6 +946,17 @@ public class OrderService {
             }
         }));
         tableRepository.saveAll(updatedTables);
+    }
+
+    // Cap nhat rieng mot ban khi chi huy mot table order trong reservation nhieu ban.
+    private void updateTableStatus(Long tableId, RestaurantTable.TableStatus status) {
+        if (tableId == null) return;
+        tableRepository.findByIdForUpdate(tableId).ifPresent(table -> {
+            if (Boolean.TRUE.equals(table.getIsActive())) {
+                table.setStatus(status);
+                tableRepository.save(table);
+            }
+        });
     }
 
     // Xác định bàn đại diện: tableId cũ trước, nếu thiếu lấy bàn đầu tiên trong danh sách.
