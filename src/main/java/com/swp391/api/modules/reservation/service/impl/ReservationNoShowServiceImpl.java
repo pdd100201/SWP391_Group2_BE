@@ -11,9 +11,21 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Dịch vụ xử lý tự động hủy các đơn đặt bàn quá giờ hẹn (No-Show).
+ * 
+ * <p>Quy trình hoạt động ngầm (Scheduler):</p>
+ * 1. Quét tìm các đơn đặt bàn ở trạng thái CONFIRMED đã quá giờ hẹn 15 phút mà khách chưa Check-in.
+ * 2. Cập nhật trạng thái đơn đặt bàn sang NO_SHOW.
+ * 3. Trả toàn bộ các bàn đang bị khóa (RESERVED) của đơn đó quay về trạng thái trống (AVAILABLE).
+ */
 @Service
 public class ReservationNoShowServiceImpl implements ReservationNoShowService {
 
+    /**
+     * Thời gian gia hạn tối đa cho phép khách đến muộn (15 phút).
+     * Quá 15 phút so với giờ hẹn đặt bàn, hệ thống tự động đánh dấu NO_SHOW.
+     */
     private static final int NO_SHOW_GRACE_MINUTES = 15;
 
     private final ReservationRepository reservationRepository;
@@ -25,6 +37,10 @@ public class ReservationNoShowServiceImpl implements ReservationNoShowService {
         this.tableRepository = tableRepository;
     }
 
+    /**
+     * Quét và đánh dấu NO_SHOW cho các đơn đặt bàn quá hạn 15 phút, đồng thời giải phóng bàn bị giữ.
+     * Hàm này được gọi định kỳ từ Scheduler ngầm.
+     */
     @Override
     @Transactional
     public void markNoShowsAndReleaseTables() {
@@ -42,6 +58,11 @@ public class ReservationNoShowServiceImpl implements ReservationNoShowService {
         reservationRepository.saveAll(reservations);
     }
 
+    /**
+     * Giải phóng các bàn ăn đang bị giữ chỗ (RESERVED) của đơn NO_SHOW quay trở về trạng thái trống (AVAILABLE).
+     * 
+     * @param reservation Đơn đặt bàn quá hạn bị hủy NO_SHOW
+     */
     private void releaseReservedTables(Reservation reservation) {
         List<RestaurantTable> tables = new java.util.ArrayList<>();
         if (reservation.getTables() != null) {
