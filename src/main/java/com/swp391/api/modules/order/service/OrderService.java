@@ -601,12 +601,13 @@ public class OrderService {
         return toResponse(orderRepository.save(order));
     }
 
-    // Điểm vào submit dành cho nhân viên.
+    // void mon ra khoi bill.
     public OrderResponse voidServedItem(Long orderId, Long itemId, VoidOrderItemRequest request) {
         requireAnyRole(PAYMENT_ADJUSTMENT_ROLES);
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
 
+        //chi mon da served moi duoc void
         OrderItem item = findItem(order, itemId);
         if (item.getStatus() != OrderItemStatus.SERVED) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only served items can be voided from the bill");
@@ -615,15 +616,40 @@ public class OrderService {
         User currentUser = currentUserRequired();
         LocalDateTime voidedAt = LocalDateTime.now();
         String reason = normalize(request.getReason());
-        order.getItems().stream()
+        int requestedQuantity = request.getQuantity() == null ? 1 : request.getQuantity();
+        if (requestedQuantity < 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Void quantity must be at least 1");
+        }
+
+        List<OrderItem> servedItems = order.getItems().stream()
                 .filter(candidate -> isEquivalentOrderItem(candidate, item))
-                .toList()
-                .forEach(candidate -> {
-                    candidate.setStatus(OrderItemStatus.VOIDED);
-                    candidate.setVoidReason(reason);
-                    candidate.setVoidedAt(voidedAt);
-                    candidate.setVoidedBy(currentUser.getFullName());
-                });
+                .toList();
+        int availableQuantity = servedItems.stream()
+                .mapToInt(candidate -> candidate.getQuantity() == null ? 0 : candidate.getQuantity())
+                .sum();
+        if (requestedQuantity > availableQuantity) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Void quantity is greater than served quantity");
+        }
+
+        // Void theo so luong nhan vien chon. Neu chi void mot phan cua dong x2/x3,
+        // dong goc bi giam quantity, phan bi void duoc tach thanh dong VOIDED de giu audit trail.
+        int remainingQuantity = requestedQuantity;
+        for (OrderItem servedItem : servedItems) {
+            if (remainingQuantity <= 0) {
+                break;
+            }
+
+            int itemQuantity = servedItem.getQuantity() == null ? 0 : servedItem.getQuantity();
+            if (remainingQuantity >= itemQuantity) {
+                markVoided(servedItem, reason, voidedAt, currentUser.getFullName());
+                remainingQuantity -= itemQuantity;
+            } else {
+                servedItem.setQuantity(itemQuantity - remainingQuantity);
+                updateSubtotal(servedItem);
+                order.addItem(createVoidedCopy(servedItem, remainingQuantity, reason, voidedAt, currentUser.getFullName()));
+                remainingQuantity = 0;
+            }
+        }
 
         orderRepository.save(order);
         paymentService.syncReservationBillAfterItemVoid(order.getReservation().getReservationId());
@@ -1144,6 +1170,31 @@ public class OrderService {
     }
 
     // Hai dòng chỉ tương đương khi cùng món, trạng thái, note và đơn giá.
+    private void markVoided(OrderItem item, String reason, LocalDateTime voidedAt, String voidedBy) {
+        item.setStatus(OrderItemStatus.VOIDED);
+        item.setVoidReason(reason);
+        item.setVoidedAt(voidedAt);
+        item.setVoidedBy(voidedBy);
+    }
+
+    private OrderItem createVoidedCopy(OrderItem source, int quantity, String reason, LocalDateTime voidedAt, String voidedBy) {
+        OrderItem voidedItem = new OrderItem();
+        voidedItem.setMenuItem(source.getMenuItem());
+        voidedItem.setMenuItemName(source.getMenuItemName());
+        voidedItem.setMenuItemImageUrl(source.getMenuItemImageUrl());
+        voidedItem.setCategoryName(source.getCategoryName());
+        voidedItem.setUnitPrice(source.getUnitPrice());
+        voidedItem.setQuantity(quantity);
+        updateSubtotal(voidedItem);
+        voidedItem.setNote(source.getNote());
+        voidedItem.setStatus(OrderItemStatus.VOIDED);
+        voidedItem.setSubmittedAt(source.getSubmittedAt());
+        voidedItem.setVoidReason(reason);
+        voidedItem.setVoidedAt(voidedAt);
+        voidedItem.setVoidedBy(voidedBy);
+        return voidedItem;
+    }
+
     private boolean isEquivalentOrderItem(OrderItem candidate, OrderItem reference) {
         return candidate.getMenuItem().getId().equals(reference.getMenuItem().getId())
                 && candidate.getStatus() == reference.getStatus()
