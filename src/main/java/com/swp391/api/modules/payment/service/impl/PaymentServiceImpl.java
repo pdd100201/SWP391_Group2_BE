@@ -76,7 +76,8 @@ public class PaymentServiceImpl implements PaymentService {
         }
         //Tất cả món phải được phục vụ xong mới cho thanh toán.
         requireAllItemsServed(order);
-        BigDecimal total = calculateTotal(order);
+        Bill bill = prepareBill(order, BillStatus.PENDING, null);
+        BigDecimal total = bill.getTotal();
         //Nếu tổng tiền <= 0 thì không tạo payment.
         if (total.compareTo(BigDecimal.ZERO) <= 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order total must be greater than 0");
@@ -96,7 +97,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         Payment payment = new Payment();
         payment.setOrder(order);
-        payment.setBill(prepareBill(order, total, BillStatus.PENDING, null));
+        payment.setBill(bill);
         payment.setProvider("SEPAY");
         payment.setStatus(PaymentStatus.PENDING);
         payment.setAmount(total);
@@ -114,7 +115,9 @@ public class PaymentServiceImpl implements PaymentService {
         if (order.getStatus() != OrderStatus.OPEN) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only open orders can be paid");
         }
-        BigDecimal total = calculateTotal(order);
+        LocalDateTime paidAt = LocalDateTime.now();
+        Bill bill = prepareBill(order, BillStatus.PAID, paidAt);
+        BigDecimal total = bill.getTotal();
         if (total.compareTo(BigDecimal.ZERO) <= 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order total must be greater than 0");
         }
@@ -133,8 +136,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         Payment payment = new Payment();
         payment.setOrder(order);
-        LocalDateTime paidAt = LocalDateTime.now();
-        payment.setBill(prepareBill(order, total, BillStatus.PAID, paidAt));
+        payment.setBill(bill);
         payment.setProvider("CASH");
         payment.setStatus(PaymentStatus.PAID);
         payment.setAmount(total);
@@ -546,24 +548,13 @@ public class PaymentServiceImpl implements PaymentService {
         return "CASHORD" + order.getId() + "PAY" + System.currentTimeMillis();
     }
 
-    private Bill prepareBill(RestaurantOrder order, BigDecimal total, BillStatus status, LocalDateTime paidAt) {
-        // Chuan bi bill cho luong payment theo 1 order rieng le.
+    private Bill prepareBill(RestaurantOrder order, BillStatus status, LocalDateTime paidAt) {
         Long reservationId = order.getReservation().getReservationId();
-        Bill bill = billRepository.findByReservation_ReservationId(reservationId).orElseGet(() -> {
-            Bill newBill = new Bill();
-            newBill.setBillCode("BILL-" + reservationId + "-" + System.currentTimeMillis());
-            newBill.setReservation(order.getReservation());
-            return newBill;
-        });
-        BigDecimal subtotal = order.getItems().stream()
-                .filter(item -> isBillableStatus(item.getStatus()))
-                .map(OrderItem::getSubtotal)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .setScale(2, RoundingMode.HALF_UP);
-        bill.setPromotion(order.getPromotion());
-        bill.setSubtotal(subtotal);
-        bill.setDiscountAmount(subtotal.subtract(total).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
-        bill.setTotal(total);
+        List<RestaurantOrder> orders = findReservationOrdersOrEmpty(reservationId);
+        if (orders.isEmpty()) {
+            orders = List.of(order);
+        }
+        Bill bill = getOrCreateReservationBill(orders);
         bill.setStatus(status);
         bill.setLockedAt(LocalDateTime.now());
         bill.setPaidAt(paidAt);
@@ -594,17 +585,6 @@ public class PaymentServiceImpl implements PaymentService {
                 + addInfo
                 + "&accountName="
                 + accountName;
-    }
-    //tính số tiền cuối cùng của một order sau khi trừ promotion.
-    private BigDecimal calculateTotal(RestaurantOrder order) {
-        // Total cua order = tong mon chua CANCELLED - discount.
-        BigDecimal subtotal = order.getItems().stream()
-                .filter(item -> isBillableStatus(item.getStatus()))
-                .map(OrderItem::getSubtotal)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .setScale(2, RoundingMode.HALF_UP);
-        BigDecimal discount = calculateDiscount(order.getPromotion(), subtotal);
-        return subtotal.subtract(discount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     }
     //Tất cả món phải được phục vụ xong mới cho thanh toán.
     private void requireAllItemsServed(RestaurantOrder order) {

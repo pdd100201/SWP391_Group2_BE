@@ -10,6 +10,9 @@ import com.swp391.api.modules.report.dto.TopSellingItemDto;
 import com.swp391.api.modules.report.dto.PaymentMethodBreakdownDto;
 import com.swp391.api.modules.order.entity.OrderItem;
 import com.swp391.api.modules.order.entity.OrderItemStatus;
+import com.swp391.api.modules.order.entity.OrderStatus;
+import com.swp391.api.modules.order.entity.RestaurantOrder;
+import com.swp391.api.modules.order.repository.OrderRepository;
 import com.swp391.api.modules.table.entity.RestaurantTable;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.report.service.ReportService;
@@ -46,18 +49,21 @@ public class ReportServiceImpl implements ReportService {
     private final ReservationRepository reservationRepository;
     private final MenuItemRepository menuItemRepository;
     private final UserRepository userRepository;
+    private final OrderRepository orderRepository;
 
     public ReportServiceImpl(
             PaymentRepository paymentRepository,
             TableRepository tableRepository,
             ReservationRepository reservationRepository,
             MenuItemRepository menuItemRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            OrderRepository orderRepository) {
         this.paymentRepository = paymentRepository;
         this.tableRepository = tableRepository;
         this.reservationRepository = reservationRepository;
         this.menuItemRepository = menuItemRepository;
         this.userRepository = userRepository;
+        this.orderRepository = orderRepository;
     }
 
     /**
@@ -315,6 +321,11 @@ public class ReportServiceImpl implements ReportService {
                 dto.setSubtotal(payment.getBill().getSubtotal());
                 dto.setDiscountAmount(payment.getBill().getDiscountAmount());
                 dto.setTotal(payment.getBill().getTotal());
+                if (payment.getBill().getPromotion() != null) {
+                    dto.setPromotionId(payment.getBill().getPromotion().getId());
+                    dto.setPromotionCode(payment.getBill().getPromotion().getCode());
+                    dto.setPromotionName(payment.getBill().getPromotion().getName());
+                }
             }
 
             if (payment.getOrder() != null) {
@@ -334,26 +345,8 @@ public class ReportServiceImpl implements ReportService {
                         dto.setTableNames(String.join(", ", tableList));
                     }
                 }
-                if (payment.getOrder().getItems() != null) {
-                    List<OrderItemDto> itemDtos = new ArrayList<>();
-                    for (OrderItem item : payment.getOrder().getItems()) {
-                        if (item.getStatus() == OrderItemStatus.CANCELLED) {
-                            continue;
-                        }
-                        itemDtos.add(new OrderItemDto(
-                            item.getId(),
-                            item.getMenuItemName(),
-                            item.getUnitPrice(),
-                            item.getSubtotal(),
-                            item.getQuantity(),
-                            item.getNote(),
-                            item.getStatus() != null ? item.getStatus().name() : null,
-                            item.getVoidReason()
-                        ));
-                    }
-                    dto.setItems(itemDtos);
-                }
             }
+            dto.setItems(mapPaymentOrderItems(payment));
             dtos.add(dto);
         }
         return dtos;
@@ -362,22 +355,65 @@ public class ReportServiceImpl implements ReportService {
     private List<TopSellingItemDto> calculateTopSellingItems(List<Payment> payments) {
         Map<String, TopSellingItemDto> map = new HashMap<>();
         for (Payment payment : payments) {
-            if (payment.getOrder() != null && payment.getOrder().getItems() != null) {
-                for (OrderItem item : payment.getOrder().getItems()) {
-                    if (!isBillableItem(item)) {
-                        continue;
+            for (RestaurantOrder order : findOrdersForPayment(payment)) {
+                if (order.getItems() != null) {
+                    for (OrderItem item : order.getItems()) {
+                        if (!isBillableItem(item)) {
+                            continue;
+                        }
+                        String name = item.getMenuItemName();
+                        TopSellingItemDto dto = map.computeIfAbsent(name, k -> new TopSellingItemDto(name, 0L, BigDecimal.ZERO));
+                        dto.setQuantity(dto.getQuantity() + item.getQuantity());
+                        BigDecimal itemRevenue = item.getSubtotal() != null ? item.getSubtotal() : BigDecimal.ZERO;
+                        dto.setRevenue(dto.getRevenue().add(itemRevenue));
                     }
-                    String name = item.getMenuItemName();
-                    TopSellingItemDto dto = map.computeIfAbsent(name, k -> new TopSellingItemDto(name, 0L, BigDecimal.ZERO));
-                    dto.setQuantity(dto.getQuantity() + item.getQuantity());
-                    BigDecimal itemRevenue = item.getSubtotal() != null ? item.getSubtotal() : BigDecimal.ZERO;
-                    dto.setRevenue(dto.getRevenue().add(itemRevenue));
                 }
             }
         }
         List<TopSellingItemDto> list = new ArrayList<>(map.values());
         list.sort((a, b) -> Long.compare(b.getQuantity(), a.getQuantity()));
         return list.size() > 10 ? list.subList(0, 10) : list;
+    }
+
+    private List<OrderItemDto> mapPaymentOrderItems(Payment payment) {
+        List<OrderItemDto> itemDtos = new ArrayList<>();
+        for (RestaurantOrder order : findOrdersForPayment(payment)) {
+            if (order.getItems() == null) {
+                continue;
+            }
+            for (OrderItem item : order.getItems()) {
+                if (!isBillableItem(item)) {
+                    continue;
+                }
+                itemDtos.add(new OrderItemDto(
+                    item.getId(),
+                    item.getMenuItemName(),
+                    item.getUnitPrice(),
+                    item.getSubtotal(),
+                    item.getQuantity(),
+                    item.getNote(),
+                    item.getStatus() != null ? item.getStatus().name() : null,
+                    item.getVoidReason()
+                ));
+            }
+        }
+        return itemDtos;
+    }
+
+    private List<RestaurantOrder> findOrdersForPayment(Payment payment) {
+        if (payment.getBill() != null
+                && payment.getBill().getReservation() != null
+                && payment.getBill().getReservation().getReservationId() != null) {
+            return orderRepository.findAllByReservationReservationIdOrderByCreatedAtDesc(
+                            payment.getBill().getReservation().getReservationId())
+                    .stream()
+                    .filter(order -> order.getStatus() != OrderStatus.CANCELLED)
+                    .toList();
+        }
+        if (payment.getOrder() != null) {
+            return List.of(payment.getOrder());
+        }
+        return List.of();
     }
 
     private List<PaymentMethodBreakdownDto> calculatePaymentMethodsBreakdown(List<Payment> payments) {

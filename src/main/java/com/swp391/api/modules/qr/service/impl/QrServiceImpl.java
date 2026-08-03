@@ -116,7 +116,49 @@ public class QrServiceImpl implements QrService {
                 .findBySessionTokenAndStatus(request.getSessionToken(), "ACTIVE")
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid or expired QR session. Please scan the table QR code again."));
 
+        if (session.getExpiredAt() != null && session.getExpiredAt().isBefore(LocalDateTime.now())) {
+            session.setStatus("EXPIRED");
+            sessionRepository.save(session);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "QR session has expired. Please scan the table QR code again.");
+        }
+
         Long tableId = session.getTableId();
+        var reservation = reservationRepository.findActiveReservationByTableId(tableId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "TABLE_NOT_CHECKED_IN"));
+        List<QrMenuItem> menuItems = request.getItems().stream()
+                .map(item -> menuItemRepository.findById(item.getItemId())
+                        .filter(menuItem -> Boolean.TRUE.equals(menuItem.getIsActive()))
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatus.BAD_REQUEST, "Menu item is unavailable: " + item.getItemId())))
+                .toList();
+
+        QrOrder qrSubmission = new QrOrder();
+        qrSubmission.setSessionId(session.getSessionId());
+        qrSubmission.setTableId(tableId);
+        qrSubmission.setCustomerId(reservation.getCustomerId());
+        qrSubmission.setReservationId(reservation.getReservationId());
+        qrSubmission.setOrderCode("QRO-" + UUID.randomUUID().toString().replace("-", "").substring(0, 16).toUpperCase());
+        qrSubmission.setOrderType("QR_SUBMISSION");
+        qrSubmission.setStatus("PROCESSING");
+        qrSubmission.setCreatedAt(LocalDateTime.now());
+        qrSubmission.setUpdatedAt(LocalDateTime.now());
+        qrSubmission = orderRepository.save(qrSubmission);
+
+        for (int index = 0; index < request.getItems().size(); index++) {
+            QrOrderRequest.OrderItemDto requestedItem = request.getItems().get(index);
+            QrMenuItem menuItem = menuItems.get(index);
+            QrOrderItem auditItem = new QrOrderItem();
+            auditItem.setOrderId(qrSubmission.getOrderId());
+            auditItem.setItemId(menuItem.getId());
+            auditItem.setQuantity(requestedItem.getQuantity());
+            auditItem.setUnitPrice(menuItem.getPrice().doubleValue());
+            auditItem.setSubtotal(menuItem.getPrice()
+                    .multiply(java.math.BigDecimal.valueOf(requestedItem.getQuantity())).doubleValue());
+            auditItem.setItemStatus("SUBMITTED");
+            auditItem.setNote(requestedItem.getNote());
+            auditItem.setSubmittedAt(LocalDateTime.now());
+            orderItemRepository.save(auditItem);
+        }
         String tokenPreview = request.getSessionToken().length() > 8
                 ? request.getSessionToken().substring(0, 8) + "..."
                 : request.getSessionToken();
@@ -145,21 +187,26 @@ public class QrServiceImpl implements QrService {
             orderService.addPublicItem(token, addReq);
         }
         OrderResponse submitted = orderService.submitPublic(token);
+        qrSubmission.setRestaurantOrderId(submitted.id());
+        qrSubmission.setStatus("SYNCED");
+        qrSubmission.setUpdatedAt(LocalDateTime.now());
+        orderRepository.save(qrSubmission);
         return toQrResponse(submitted, tableId);
     }
 
     @Override
     @Transactional(readOnly = true)
     public QrOrderResponse getOrderStatus(Long orderId) {
-        Optional<QrOrder> qrOrder = orderRepository.findById(orderId);
-        if (qrOrder.isPresent()) {
-            List<QrOrderItem> items = orderItemRepository.findByOrderId(orderId);
-            double totalAmount = items.stream().mapToDouble(QrOrderItem::getSubtotal).sum();
-            return buildOrderResponse(qrOrder.get(), items, totalAmount);
+        RestaurantOrder ro = restaurantOrderRepository.findById(orderId).orElse(null);
+        if (ro == null) {
+            QrOrder submission = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found"));
+            if (submission.getRestaurantOrderId() == null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "QR submission has not been synchronized yet");
+            }
+            ro = restaurantOrderRepository.findById(submission.getRestaurantOrderId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Linked restaurant order not found"));
         }
-        // Check restaurant_orders (created via QR flow)
-        RestaurantOrder ro = restaurantOrderRepository.findById(orderId)
-                .orElseThrow(() -> new RuntimeException("Order not found: " + orderId));
         Long tableId = resolveTableId(ro);
         return buildOrderResponseFromRestaurantOrder(ro, tableId);
     }

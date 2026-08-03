@@ -33,6 +33,6 @@ public interface PromotionRepository extends JpaRepository<Promotion, Long> {
 
     boolean existsByCodeIgnoreCaseAndIdNot(String code, Long id);
 
-    @Query(value = "SELECT COUNT(*) FROM restaurant_orders WHERE promotion_id = :promotionId", nativeQuery = true)
-    long countOrdersUsingPromotion(@Param("promotionId") Long promotionId);
+    @Query(value = "SELECT COUNT(*) FROM bills WHERE promotion_id = :promotionId", nativeQuery = true)
+    long countBillsUsingPromotion(@Param("promotionId") Long promotionId);
 }
