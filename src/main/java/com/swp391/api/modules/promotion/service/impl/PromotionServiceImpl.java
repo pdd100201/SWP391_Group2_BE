@@ -152,12 +152,12 @@ public class PromotionServiceImpl implements PromotionService {
         // Tim promotion can xoa.
         Promotion promotion = findPromotion(id);
 
-        // Neu promotion da duoc order su dung thi khong cho xoa that.
-        if (promotionRepository.countOrdersUsingPromotion(id) > 0) {
-            throw new BusinessException("This promotion is already used by orders. Deactivate it instead of deleting.");
+        // Neu promotion da duoc bill su dung thi khong cho xoa that.
+        if (promotionRepository.countBillsUsingPromotion(id) > 0) {
+            throw new BusinessException("This promotion is already used by bills. Deactivate it instead of deleting.");
         }
 
-        // Chua order nao dung thi duoc xoa khoi DB.
+        // Chua bill nao dung thi duoc xoa khoi DB.
         promotionRepository.delete(promotion);
     }
 

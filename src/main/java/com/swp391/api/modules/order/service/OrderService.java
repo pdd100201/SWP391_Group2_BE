@@ -27,10 +27,7 @@ import com.swp391.api.modules.qr.entity.QrOrderItem;
 import com.swp391.api.modules.qr.repository.QrOrderItemRepository;
 import com.swp391.api.modules.qr.repository.QrOrderRepository;
 import com.swp391.api.modules.payment.service.PaymentService;
-import com.swp391.api.modules.promotion.entity.DiscountType;
 import com.swp391.api.modules.promotion.entity.Promotion;
-import com.swp391.api.modules.promotion.entity.PromotionStatus;
-import com.swp391.api.modules.promotion.repository.PromotionRepository;
 import com.swp391.api.modules.reservation.entity.Reservation;
 import com.swp391.api.modules.reservation.entity.ReservationStatus;
 import com.swp391.api.modules.reservation.repository.ReservationRepository;
@@ -78,7 +75,6 @@ public class OrderService {
     private final MenuService menuService;
 
     // Thành phần liên quan Promotion, hóa đơn và giao dịch thanh toán.
-    private final PromotionRepository promotionRepository;
     private final BillRepository billRepository;
     private final PaymentRepository paymentRepository;
 
@@ -95,7 +91,6 @@ public class OrderService {
             MenuItemRepository menuItemRepository,
             UserRepository userRepository,
             MenuService menuService,
-            PromotionRepository promotionRepository,
             BillRepository billRepository,
             PaymentRepository paymentRepository,
             QrOrderRepository qrOrderRepository,
@@ -107,7 +102,6 @@ public class OrderService {
         this.menuItemRepository = menuItemRepository;
         this.userRepository = userRepository;
         this.menuService = menuService;
-        this.promotionRepository = promotionRepository;
         this.billRepository = billRepository;
         this.paymentRepository = paymentRepository;
         this.qrOrderRepository = qrOrderRepository;
@@ -631,9 +625,6 @@ public class OrderService {
                     candidate.setVoidedBy(currentUser.getFullName());
                 });
 
-        if (order.getPromotion() != null) {
-            refreshDiscount(order);
-        }
         orderRepository.save(order);
         paymentService.syncReservationBillAfterItemVoid(order.getReservation().getReservationId());
         return toResponse(order);
@@ -719,7 +710,7 @@ public class OrderService {
         if (!hasServedItem || hasUnfinishedItem) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "All non-cancelled items must be served before closing");
         }
-        refreshDiscount(order);
+        paymentService.syncOpenReservationBill(order.getReservation().getReservationId());
         if (calculateSubtotal(order).compareTo(BigDecimal.ZERO) > 0
                 && paymentRepository.findFirstByOrder_IdAndStatusOrderByCreatedAtDesc(orderId, PaymentStatus.PAID).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Order must be paid before closing");
@@ -776,39 +767,16 @@ public class OrderService {
     public OrderResponse applyPromotion(Long orderId, String code) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
-        BigDecimal subtotal = calculateSubtotal(order);
-        if (subtotal.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Add order items before applying a promotion");
-        }
-
-        Promotion promotion = promotionRepository.findByCodeIgnoreCase(code == null ? "" : code.trim())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Promotion code not found"));
-        validatePromotion(promotion, subtotal, order.getPromotion());
-
-        // Nếu đổi sang mã khác, hoàn lượt dùng của mã cũ trước khi tăng lượt mã mới.
-        Promotion currentPromotion = order.getPromotion();
-        if (currentPromotion != null && !currentPromotion.getId().equals(promotion.getId())) {
-            decrementUsedCount(currentPromotion);
-        }
-        if (currentPromotion == null || !currentPromotion.getId().equals(promotion.getId())) {
-            promotion.setUsedCount((promotion.getUsedCount() == null ? 0 : promotion.getUsedCount()) + 1);
-        }
-
-        order.setPromotion(promotion);
-        order.setDiscountAmount(calculateDiscount(promotion, subtotal));
-        return toResponse(orderRepository.save(order));
+        paymentService.applyReservationPromotion(order.getReservation().getReservationId(), code);
+        return toResponse(order);
     }
 
     // Gỡ khuyến mãi, đưa discount về 0 và hoàn một lượt sử dụng.
     public OrderResponse removePromotion(Long orderId) {
         RestaurantOrder order = findOrderForUpdate(orderId);
         requireOpen(order);
-        if (order.getPromotion() != null) {
-            decrementUsedCount(order.getPromotion());
-        }
-        order.setPromotion(null);
-        order.setDiscountAmount(BigDecimal.ZERO);
-        return toResponse(orderRepository.save(order));
+        paymentService.removeReservationPromotion(order.getReservation().getReservationId());
+        return toResponse(order);
     }
 
     // Hủy order chỉ khi chưa có món PREPARING/READY/SERVED.
@@ -826,11 +794,6 @@ public class OrderService {
         order.getItems().forEach(item -> {
             item.setStatus(OrderItemStatus.CANCELLED);
         });
-        if (order.getPromotion() != null) {
-            decrementUsedCount(order.getPromotion());
-            order.setPromotion(null);
-            order.setDiscountAmount(BigDecimal.ZERO);
-        }
         order.setStatus(OrderStatus.CANCELLED);
         order.setClosedAt(LocalDateTime.now());
         order.getReservation().setStatus(ReservationStatus.CANCELLED);
@@ -866,16 +829,13 @@ public class OrderService {
                 .map(OrderItemResponse::lineTotal)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         // Thành tiền không âm: subtotal - discount, làm tròn hai chữ số thập phân.
-        BigDecimal discountAmount = order.getPromotion() == null
-                ? BigDecimal.ZERO
-                : calculateDiscount(order.getPromotion(), subtotal);
-        BigDecimal total = subtotal.subtract(discountAmount).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal discountAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal total = subtotal.setScale(2, RoundingMode.HALF_UP);
         Reservation reservation = order.getReservation();
         RestaurantTable table = findOrderTable(order);
         List<Long> tableIds = order.getTableId() == null ? List.of() : List.of(order.getTableId());
         List<String> tableNumbers = table == null || table.getTableNumber() == null ? List.of() : List.of(table.getTableNumber());
         List<String> tableNames = table == null || table.getTableName() == null ? List.of() : List.of(table.getTableName());
-        Promotion promotion = order.getPromotion();
         Payment payment = paymentRepository.findFirstByOrder_IdOrderByCreatedAtDesc(order.getId()).orElse(null);
         return new OrderResponse(
                 order.getId(),
@@ -897,9 +857,9 @@ public class OrderService {
                 order.getStatus(),
                 serviceStatus(order),
                 order.getNote(),
-                promotion == null ? null : promotion.getId(),
-                promotion == null ? null : promotion.getCode(),
-                promotion == null ? null : promotion.getPromotionName(),
+                null,
+                null,
+                null,
                 subtotal.setScale(2, RoundingMode.HALF_UP),
                 discountAmount,
                 total,
@@ -923,61 +883,7 @@ public class OrderService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add)
                 .setScale(2, RoundingMode.HALF_UP);
     }
-    // Tính số tiền giảm theo phần trăm hoặc số tiền cố định.
-    private BigDecimal calculateDiscount(Promotion promotion, BigDecimal subtotal) {
-        if (promotion == null || subtotal.compareTo(BigDecimal.ZERO) <= 0) {
-            return BigDecimal.ZERO;
-        }
-        if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
-            return BigDecimal.ZERO;
-        }
-        // Công thức phần trăm: subtotal × discountValue / 100.
-        BigDecimal discount = promotion.getDiscountType() == DiscountType.PERCENT
-                ? subtotal.multiply(promotion.getDiscountValue()).divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
-                : promotion.getDiscountValue();
 
-        if (promotion.getMaxDiscountAmount() != null && discount.compareTo(promotion.getMaxDiscountAmount()) > 0) {
-            discount = promotion.getMaxDiscountAmount();
-        }
-        if (discount.compareTo(subtotal) > 0) {
-            discount = subtotal;
-        }
-        return discount.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-    }
-
-    // Kiểm tra trạng thái, thời hạn, giá trị đơn tối thiểu và giới hạn lượt dùng.
-    private void validatePromotion(Promotion promotion, BigDecimal subtotal, Promotion currentPromotion) {
-        if (promotion.getStatus() != PromotionStatus.ACTIVE) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is inactive");
-        }
-        LocalDateTime now = LocalDateTime.now();
-        if (now.isBefore(promotion.getStartDate()) || now.isAfter(promotion.getEndDate())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion is outside its valid period");
-        }
-        if (promotion.getMinOrderAmount() != null && subtotal.compareTo(promotion.getMinOrderAmount()) < 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Order total does not meet the minimum bill amount");
-        }
-        boolean samePromotion = currentPromotion != null && currentPromotion.getId().equals(promotion.getId());
-        if (!samePromotion && promotion.getUsageLimit() != null
-                && (promotion.getUsedCount() == null ? 0 : promotion.getUsedCount()) >= promotion.getUsageLimit()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Promotion usage limit has been reached");
-        }
-    }
-    // Tính lại discount khi số lượng/món trong order thay đổi.
-    private void refreshDiscount(RestaurantOrder order) {
-        if (order.getPromotion() == null) {
-            order.setDiscountAmount(BigDecimal.ZERO);
-            return;
-        }
-        BigDecimal subtotal = calculateSubtotal(order);
-        validatePromotion(order.getPromotion(), subtotal, order.getPromotion());
-        order.setDiscountAmount(calculateDiscount(order.getPromotion(), subtotal));
-    }
-    // Hoàn lại một lượt khuyến mãi nhưng không bao giờ để usedCount âm.
-    private void decrementUsedCount(Promotion promotion) {
-        int usedCount = promotion.getUsedCount() == null ? 0 : promotion.getUsedCount();
-        promotion.setUsedCount(Math.max(0, usedCount - 1));
-    }
 
     // Tìm bàn chính để tương thích reservation kiểu cũ chỉ lưu tableId.
     private RestaurantTable findAssignedTable(Reservation reservation) {
